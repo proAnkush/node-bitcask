@@ -11,8 +11,5 @@
     "logs"
   ],
   "author": "Ankush Patil",
-  "license": "ISC",
-  "dependencies": {
-    "binary-file": "^0.2.3"
-  }
+  "license": "ISC"
 }

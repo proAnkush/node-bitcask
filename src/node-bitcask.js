@@ -1,8 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 
-const BinaryFile = require("binary-file");
-const rootDir = require("../utils/rootDir");
 const utils = require("../utils/utils");
 
 class NodeBitcask {
@@ -12,134 +10,140 @@ class NodeBitcask {
     this.kvSnapshotDir = "./src/kvSnapshot.bin";
     this.kvStore = {};
     this.seek = 0;
+    this.readKVSnapshot();
     if (config && config.dataDir) {
       this.dataDir = config.dataDir;
-      console.log(this.dataDir);
-      // fs.exists is deprecated
-      if (fs.existsSync(this.kvSnapshotDir) === true) {
-        this.kvStore = { test: "seek" };
-        // this.readKVSnapshot()
-        console.log(this.kvStore, "kv store snapshot found");
-      } else {
-        console.log("fresh kv store");
-      }
     }
-    if (!fs.existsSync(this.dataDir)) {
+    try {
       fs.mkdirSync(this.dataDir);
-      console.log("created datadir");
+      fs.writeFileSync(path.join(this.dataDir, this.logfilename), "");
+    } catch {
+      // error because dir exists
     }
-    console.log(this.dataDir, this.kvStore, config);
-    fs.writeFile(path.join(this.dataDir, "test.bin"), "", (err) => {
-      if (err) {
-        console.log(err);
-      }
-    });
   }
 
-  get(key) {
-    // find address for provided key
-    // if(this.validateKey(key) === false){
-    //   throw Error("invalid key");
-    // // }
+  get(key, cb) {
+    utils.validateKey(key);
+    if (this.kvStore[key] == undefined) {
+      return null;
+    }
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
-    // let address = 14;
-    // let totalBytes = 7;
+    // read to buffer
+    let readToBuffer = Buffer.alloc(totalBytes);
 
-    // go to address in the file and start reading till end-flag
-    let buf = Buffer.alloc(totalBytes);
-
+    // go to address in the file and start reading
     fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
+      if (err) {
+        throw err;
+      }
       try {
-        let offset = 0; //
-        let length = totalBytes; // totalBytes
-        let position = address; // address
-        fs.read(fd, buf, offset, length, position, (err, bytesRead, buffer) => {
-          utils.handleErrorDefault(err);
-          // console.log(bytesRead, "total bytes");
-          // console.log(buffer.toString(), " buff")
-          console.log(decodeURIComponent(buffer.toString()));
-        });
+        fs.read(
+          fd,
+          readToBuffer,
+          0,
+          totalBytes,
+          address,
+          (err, bytesRead, buffer) => {
+            utils.handleErrorDefault(err);
+            cb(decodeURIComponent(buffer.toString()));
+            console.log("ecxplicit: ", decodeURIComponent(buffer.toString()));
+          }
+        );
       } catch (error) {
-        console.log("err");
+        if (error) {
+          cb(null);
+          throw err;
+        }
       } finally {
         fs.close(fd, utils.handleErrorDefault);
       }
     });
   }
-  validateKey(key) {
-    if (typeof key === "undefined") {
-      return Error("argument to key is not optional");
-    }
-    if (!this.kvStore[key]) {
-      return Error("key cannot be found in database");
-    }
-    if (typeof key !== "string") {
-      return Error("key should be of type string");
-    }
-    // more validation
-    return null;
-  }
-
+  /**
+   *
+   * @param {[String]} key [a key which can be used as index]
+   * @param {[Buffer]} message [a buffer object for the value relating to provided key]
+   * @return
+   * log stores the key to a json object and the message object out of memory for efficient speed and memory optimisation
+   */
   log(key, message) {
-    let validationError = validateMessage(message);
-    message = String(message);
-    if (validationError) {
-      throw valdationError;
-    }
-    this.kvStore[key] = {
-      address: this.seek,
-      totalBytes: message.length,
-      checksum: null,
-    };
-    this.seek += message.length;
-    console.log(this.kvStore, this.seek);
-    // store as plain text
-    fs.appendFile(
-      path.join(this.dataDir, this.logfilename),
-      message,
-      utils.handleErrorDefault
-    );
-  }
+    /* stores the log */
+    let isMessageValid = utils.validateMessage(message);
+    let isKeyValid = utils.validateKey(key, this.kvStore);
 
-  validateMessage(message) {
-    if (typeof message === "undefined") {
-      return Error("message argument is not optional");
+    if (isKeyValid && isMessageValid) {
+      this.kvStore[key] = {
+        address: this.seek,
+        totalBytes: message.length,
+        checksum: null,
+      };
+      this.seek += message.length;
+      // store as plain text
+      fs.appendFile(
+        path.join(this.dataDir, this.logfilename),
+        message,
+        (err) => {
+          if (err) {
+            throw err;
+          }
+          this.createKVSnapshot();
+        }
+      );
     }
-    message = String(message);
-    if (typeof message !== "string") {
-      return Error(`message should be of type string, not ${typeof message}`);
-    }
-    return null;
-  }
-
-  put(key, message) {
-    this.log(key, message);
   }
 
   createKVSnapshot() {
-    fs.writeFile(
-      path.join(this.dataDir, this.logfilename),
-      JSON.stringify(this.kvStore),
-      handleErrorDefault
-    );
+    fs.open(this.kvSnapshotDir, "w", (err, fd) => {
+      if (err) {
+        throw err;
+      }
+      let kvBuffer = Buffer.from(JSON.stringify(this.kvStore));
+      fs.write(fd, kvBuffer, (err) => {
+        if (err) {
+          throw err;
+        }
+      });
+    });
   }
 
   readKVSnapshot() {
     // reading kv snapshot need to be synchronous
     // also recover seek
-    this.kvStore = JSON.parse(
-      fs.readFileSync(path.join(this.dataDir, this.logfilename))
-    );
+    let kvBuf = fs.readFileSync(this.kvSnapshotDir).toString();
+    if (kvBuf.length != 0) {
+      console.log(JSON.parse(kvBuf));
+      this.kvStore = JSON.parse(kvBuf) || {};
+    }
+
+    this.seek = utils.calculateSeek(this.kvStore);
   }
 
+  /**
+   * Empties the database files and unlinks the kv object,
+   *  warning: some operations might still be pending, this will affect their output.
+   */
   unload() {
-    fs.rmSync(this.dataDir, { recursive: true, force: true });
-    fs.unlink(this.kvSnapshotDir, (err) => {
-      if (err) {
-        console.log(err);
-      }
-    });
+    try {
+      utils.empty(path.join(this.dataDir, this.logfilename));
+      utils.empty(this.kvSnapshotDir);
+      this.kvStore = {};
+      this.seek = {};
+    } catch (error) {
+      if (error) throw error;
+    }
+  }
+  put(key, message) {
+    return this.log(key, message);
+  }
+  getLog(key, cb) {
+    return this.get(key, cb);
+  }
+  getSync() {
+    console.log("not yet defined");
+  }
+  putSync() {
+    console.log("not yet defined");
   }
 }
 
