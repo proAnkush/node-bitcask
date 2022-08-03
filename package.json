@@ -1,0 +1,18 @@
+{
+  "name": "node-bitcask",
+  "version": "1.0.0",
+  "description": "An append only, on-disc log database for storing and retrieving logs fast using in memory hashmaps.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "bitcask",
+    "logs"
+  ],
+  "author": "Ankush Patil",
+  "license": "ISC",
+  "dependencies": {
+    "binary-file": "^0.2.3"
+  }
+}
