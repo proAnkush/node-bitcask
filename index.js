@@ -11,6 +11,7 @@ const myNodeBitcask = new NodeBitcask({dataDir: "./data"});
 
 myNodeBitcask.get("key", console.log);
 myNodeBitcask.log("key2", "keto4 kya"); //8
+myNodeBitcask.log("keyBuf", Buffer.from("ABC123")); //8
 myNodeBitcask.get("key2", console.log);
 setTimeout(() => {
   myNodeBitcask.unload()

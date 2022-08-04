@@ -63,7 +63,7 @@ class NodeBitcask {
   /**
    *
    * @param {[String]} key [a key which can be used as index]
-   * @param {[Buffer]} message [a buffer object for the value relating to provided key]
+   * @param {[String]} message [a buffer object for the value relating to provided key]
    * @return
    * log stores the key to a json object and the message object out of memory for efficient speed and memory optimisation
    */
@@ -73,12 +73,6 @@ class NodeBitcask {
     let isKeyValid = utils.validateKey(key, this.kvStore);
 
     if (isKeyValid && isMessageValid) {
-      this.kvStore[key] = {
-        address: this.seek,
-        totalBytes: message.length,
-        checksum: null,
-      };
-      this.seek += message.length;
       // store as plain text
       fs.appendFile(
         path.join(this.dataDir, this.logfilename),
@@ -87,6 +81,13 @@ class NodeBitcask {
           if (err) {
             throw err;
           }
+          // modify kv store if fs append success
+          this.kvStore[key] = {
+            address: this.seek,
+            totalBytes: message.length,
+            checksum: null,
+          };
+          this.seek += message.length;
           this.createKVSnapshot();
         }
       );
@@ -98,12 +99,16 @@ class NodeBitcask {
       if (err) {
         throw err;
       }
-      let kvBuffer = Buffer.from(JSON.stringify(this.kvStore));
-      fs.write(fd, kvBuffer, (err) => {
-        if (err) {
-          throw err;
-        }
-      });
+      try {
+        let kvBuffer = Buffer.from(JSON.stringify(this.kvStore));
+        fs.write(fd, kvBuffer, (err) => {
+          if (err) {
+            throw err;
+          }
+        });
+      } catch (error) {
+        //
+      }
     });
   }
 
@@ -138,6 +143,12 @@ class NodeBitcask {
   }
   getLog(key, cb) {
     return this.get(key, cb);
+  }
+  putLogStream(key, messageStream) {
+    // get chunks from stream, and put them to file, increment totalbytes and write data in contiguous sequence
+  }
+  getLogStream(key, cb) {
+    // if total bytes is BIG, then do cb with stream of data
   }
   getSync() {
     console.log("not yet defined");
