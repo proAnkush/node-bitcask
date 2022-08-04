@@ -58,6 +58,9 @@ class NodeBitcask {
         if (err) {
           throw err;
         }
+        if (!fd) {
+          throw Error("invalid fd");
+        }
         try {
           // let length = totalBytes-(String(key).length+1);
           // let position = address + String(key).length + 1;
@@ -69,8 +72,9 @@ class NodeBitcask {
             position,
             (err, bytesRead, buffer) => {
               if (err) {
-                console.error(err, "1");
+                console.error(err);
               }
+              fs.close(fd, utils.handleErrorDefault);
               // buffer.slice(String(key).length+1, address+totalBytes-1);
               cb(decodeURIComponent(buffer.toString()));
               // .substring((String(key).length)+1, address+totalBytes-1))
@@ -79,11 +83,10 @@ class NodeBitcask {
         } catch (error) {
           if (error) {
             console.error(error);
+            fs.close(fd, utils.handleErrorDefault);
             cb(null);
           }
-        } finally {
-          fs.close(fd, utils.handleErrorDefault);
-        }
+        } 
       });
     }, 0);
   }
