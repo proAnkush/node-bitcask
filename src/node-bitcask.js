@@ -22,6 +22,13 @@ class NodeBitcask {
     }
   }
 
+  /**
+   *
+   * @param {String} key
+   * @param {function} cb callback which will be called with the output.
+   *
+   * @returns
+   */
   get(key, cb) {
     utils.validateKey(key);
     if (this.kvStore[key] == undefined) {
@@ -30,7 +37,7 @@ class NodeBitcask {
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
     // read to buffer
-    let readToBuffer = Buffer.alloc(totalBytes);
+    let readToBuffer = Buffer.alloc(totalBytes - 1);
 
     // go to address in the file and start reading
     fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
@@ -38,22 +45,26 @@ class NodeBitcask {
         throw err;
       }
       try {
+        let length = totalBytes - 1;
+        let position = address + String(key).length + 1;
         fs.read(
           fd,
           readToBuffer,
           0,
-          totalBytes,
-          address,
+          length,
+          position,
           (err, bytesRead, buffer) => {
             utils.handleErrorDefault(err);
+            console.error(err);
+            // buffer.slice(String(key).length+1, address+totalBytes-1);
             cb(decodeURIComponent(buffer.toString()));
-            console.log("ecxplicit: ", decodeURIComponent(buffer.toString()));
+            // .substring((String(key).length)+1, address+totalBytes-1))
           }
         );
       } catch (error) {
         if (error) {
+          console.error(error);
           cb(null);
-          throw err;
         }
       } finally {
         fs.close(fd, utils.handleErrorDefault);
@@ -74,23 +85,47 @@ class NodeBitcask {
 
     if (isKeyValid && isMessageValid) {
       // store as plain text
-      fs.appendFile(
-        path.join(this.dataDir, this.logfilename),
-        message,
-        (err) => {
-          if (err) {
-            throw err;
-          }
-          // modify kv store if fs append success
+      fs.promises
+        .open(path.join(this.dataDir, this.logfilename), "a")
+        .then((fd) => {
+          return fd
+            .appendFile(key + ",")
+            .then(() => {
+              return fd;
+            })
+            .catch(utils.handleErrorDefault);
+        })
+        .then((fd) => {
+          return fd
+            .appendFile(message)
+            .then(() => {
+              return fd;
+            })
+            .catch(utils.handleErrorDefault);
+        })
+        .then((fd) => {
+          return fd
+            .appendFile("\n")
+            .then(() => {
+              return fd;
+            })
+            .catch(utils.handleErrorDefault);
+        })
+        .then((fd) => {
+          fd.close();
           this.kvStore[key] = {
             address: this.seek,
-            totalBytes: message.length,
+            totalBytes: String(key).length + 2 + message.length,
             checksum: null,
           };
-          this.seek += message.length;
+          this.seek += message.length + 2 + String(key).length;
           this.createKVSnapshot();
-        }
-      );
+        })
+        .catch((err) => {
+          if (err) {
+            console.error(err);
+          }
+        });
     }
   }
 
@@ -107,7 +142,11 @@ class NodeBitcask {
           }
         });
       } catch (error) {
-        //
+        console.error(error);
+      } finally {
+        fd.close((err) => {
+          if (err) console.error(err);
+        });
       }
     });
   }
@@ -117,7 +156,6 @@ class NodeBitcask {
     // also recover seek
     let kvBuf = fs.readFileSync(this.kvSnapshotDir).toString();
     if (kvBuf.length != 0) {
-      console.log(JSON.parse(kvBuf));
       this.kvStore = JSON.parse(kvBuf) || {};
     }
 
