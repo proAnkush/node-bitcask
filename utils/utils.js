@@ -77,7 +77,7 @@ exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
     .then((fd) => {
       return fd.write(Buffer.from(JSON.stringify(kvStore)))
     }).then((result) => {
-      console.log(result);
+      // console.log(result);
     }).catch((err) => {
       if(err){
         throw err

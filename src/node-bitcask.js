@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 const utils = require("../utils/utils");
-
+// todo store data to disk after a certain period. till then maintain it in memory
 class NodeBitcask {
   constructor() {
     this.dataDir = path.join(__dirname, "..", "data");
@@ -23,6 +23,10 @@ class NodeBitcask {
     } catch {
       // error because dir exists
     }
+    setInterval(() => {
+      utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
+      console.log("storing kv");
+    }, 60000);
   }
 
   /**
@@ -40,43 +44,48 @@ class NodeBitcask {
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
     let length = totalBytes - (String(key).length + 1);
-    let position = address + String(key).length + 1;
+    let position = address + (String(key).length + 1);
+    // while (position + length > this.seek) {
+    //   length--;
+    // }
 
     // read to buffer
     let readToBuffer = Buffer.alloc(length);
 
     // go to address in the file and start reading
-    fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
-      if (err) {
-        throw err;
-      }
-      try {
-        // let length = totalBytes-(String(key).length+1);
-        // let position = address + String(key).length + 1;
-        fs.read(
-          fd,
-          readToBuffer,
-          0,
-          length,
-          position,
-          (err, bytesRead, buffer) => {
-            if (err) {
-              console.error(err);
-            }
-            // buffer.slice(String(key).length+1, address+totalBytes-1);
-            cb(decodeURIComponent(buffer.toString()));
-            // .substring((String(key).length)+1, address+totalBytes-1))
-          }
-        );
-      } catch (error) {
-        if (error) {
-          console.error(error);
-          cb(null);
+    setTimeout(() => {
+      fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
+        if (err) {
+          throw err;
         }
-      } finally {
-        fs.close(fd, utils.handleErrorDefault);
-      }
-    });
+        try {
+          // let length = totalBytes-(String(key).length+1);
+          // let position = address + String(key).length + 1;
+          fs.read(
+            fd,
+            readToBuffer,
+            0,
+            length,
+            position,
+            (err, bytesRead, buffer) => {
+              if (err) {
+                console.error(err, "1");
+              }
+              // buffer.slice(String(key).length+1, address+totalBytes-1);
+              cb(decodeURIComponent(buffer.toString()));
+              // .substring((String(key).length)+1, address+totalBytes-1))
+            }
+          );
+        } catch (error) {
+          if (error) {
+            console.error(error);
+            cb(null);
+          }
+        } finally {
+          fs.close(fd, utils.handleErrorDefault);
+        }
+      });
+    }, 0);
   }
   /**
    *
@@ -89,42 +98,17 @@ class NodeBitcask {
     /* stores the log */
     let isMessageValid = utils.validateMessage(message);
     let isKeyValid = utils.validateKey(key, this.kvStore);
-
     if (isKeyValid && isMessageValid) {
+      let data = key + "," + message;
+      this.kvStore[key] = {
+        address: this.seek,
+        totalBytes: String(key).length + 1 + message.length,
+        checksum: null,
+      };
+      this.seek += message.length + 1 + String(key).length;
+      fs.appendFileSync(path.join(this.dataDir, this.logfilename), data);
+      
       // store as plain text
-      fs.promises
-        .open(path.join(this.dataDir, this.logfilename), "a")
-        .then((fd) => {
-          return fd
-            .appendFile(key + ",")
-            .then(() => {
-              return fd;
-            })
-            .catch(utils.handleErrorDefault);
-        })
-        .then((fd) => {
-          return fd
-            .appendFile(message)
-            .then(() => {
-              return fd;
-            })
-            .catch(utils.handleErrorDefault);
-        })
-        .then((fd) => {
-          fd.close();
-          this.kvStore[key] = {
-            address: this.seek,
-            totalBytes: String(key).length + 1 + message.length,
-            checksum: null,
-          };
-          this.seek += message.length + 1 + String(key).length;
-          utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
-        })
-        .catch((err) => {
-          if (err) {
-            console.error(err);
-          }
-        });
     }
   }
 
