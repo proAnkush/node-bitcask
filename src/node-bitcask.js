@@ -4,16 +4,19 @@ const path = require("path");
 const utils = require("../utils/utils");
 
 class NodeBitcask {
-  constructor(config) {
-    this.dataDir = "./src/database";
+  constructor() {
+    this.dataDir = path.join(__dirname, "..", "data");
     this.logfilename = "logfile.bin";
     this.kvSnapshotDir = "./src/kvSnapshot.bin";
     this.kvStore = {};
     this.seek = 0;
-    this.readKVSnapshot();
-    if (config && config.dataDir) {
-      this.dataDir = config.dataDir;
-    }
+    // if (config && config.dataDir) {
+    //   this.dataDir = config.dataDir;
+    // }
+    [this.seek, this.kvStore] = utils.readKVSnapshot(
+      this.kvSnapshotDir,
+      path.join(this.dataDir, this.logfilename)
+    );
     try {
       fs.mkdirSync(this.dataDir);
       fs.writeFileSync(path.join(this.dataDir, this.logfilename), "");
@@ -36,8 +39,11 @@ class NodeBitcask {
     }
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
+    let length = totalBytes - (String(key).length + 1);
+    let position = address + String(key).length + 1;
+
     // read to buffer
-    let readToBuffer = Buffer.alloc(totalBytes - 1);
+    let readToBuffer = Buffer.alloc(length);
 
     // go to address in the file and start reading
     fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
@@ -45,8 +51,8 @@ class NodeBitcask {
         throw err;
       }
       try {
-        let length = totalBytes - 1;
-        let position = address + String(key).length + 1;
+        // let length = totalBytes-(String(key).length+1);
+        // let position = address + String(key).length + 1;
         fs.read(
           fd,
           readToBuffer,
@@ -54,8 +60,9 @@ class NodeBitcask {
           length,
           position,
           (err, bytesRead, buffer) => {
-            utils.handleErrorDefault(err);
-            console.error(err);
+            if (err) {
+              console.error(err);
+            }
             // buffer.slice(String(key).length+1, address+totalBytes-1);
             cb(decodeURIComponent(buffer.toString()));
             // .substring((String(key).length)+1, address+totalBytes-1))
@@ -104,22 +111,14 @@ class NodeBitcask {
             .catch(utils.handleErrorDefault);
         })
         .then((fd) => {
-          return fd
-            .appendFile("\n")
-            .then(() => {
-              return fd;
-            })
-            .catch(utils.handleErrorDefault);
-        })
-        .then((fd) => {
           fd.close();
           this.kvStore[key] = {
             address: this.seek,
-            totalBytes: String(key).length + 2 + message.length,
+            totalBytes: String(key).length + 1 + message.length,
             checksum: null,
           };
-          this.seek += message.length + 2 + String(key).length;
-          this.createKVSnapshot();
+          this.seek += message.length + 1 + String(key).length;
+          utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
         })
         .catch((err) => {
           if (err) {
@@ -127,39 +126,6 @@ class NodeBitcask {
           }
         });
     }
-  }
-
-  createKVSnapshot() {
-    fs.open(this.kvSnapshotDir, "w", (err, fd) => {
-      if (err) {
-        throw err;
-      }
-      try {
-        let kvBuffer = Buffer.from(JSON.stringify(this.kvStore));
-        fs.write(fd, kvBuffer, (err) => {
-          if (err) {
-            throw err;
-          }
-        });
-      } catch (error) {
-        console.error(error);
-      } finally {
-        fd.close((err) => {
-          if (err) console.error(err);
-        });
-      }
-    });
-  }
-
-  readKVSnapshot() {
-    // reading kv snapshot need to be synchronous
-    // also recover seek
-    let kvBuf = fs.readFileSync(this.kvSnapshotDir).toString();
-    if (kvBuf.length != 0) {
-      this.kvStore = JSON.parse(kvBuf) || {};
-    }
-
-    this.seek = utils.calculateSeek(this.kvStore);
   }
 
   /**

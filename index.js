@@ -14,8 +14,7 @@ myNodeBitcask.log("key2", "keto4 kya"); //8
 // myNodeBitcask.log("keyBuf", Buffer.from("ABC123")); //8
 myNodeBitcask.get("key2", console.log);
 setTimeout(() => {
-myNodeBitcask.get("key2", console.log);
-  
+  myNodeBitcask.get("key2", console.log);
 }, 1000);
 // setTimeout(() => {
 //   myNodeBitcask.unload()

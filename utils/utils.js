@@ -33,13 +33,12 @@ exports.validateKey = (key, kvStore) => {
   return true;
 };
 
-exports.calculateSeek = (kvDict) => {
+exports.calculateSeek = (logFileDir) => {
   // assign seek
-  let count = 0;
-  for (let kv of Object.keys(kvDict)) {
-    count += kvDict[kv].totalBytes;
-  }
-  return count;
+  // size of file is the current seek position
+  let stats = fs.statSync(logFileDir);
+  let fileSizeInBytes = stats.size;
+  return fileSizeInBytes;
 };
 
 exports.empty = (pathToFile) => {
@@ -57,3 +56,53 @@ exports.empty = (pathToFile) => {
     } catch (error) {}
   });
 };
+
+exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
+  // fs.open(kvSnapshotDir, "w", (err, fd) => {
+  //   if (err) {
+  //     throw err;
+  //   }
+  //   try {
+  //     let kvBuffer = Buffer.from(JSON.stringify(kvStore));
+  //     fs.write(fd, kvBuffer, (err) => {
+  //       if (err) {
+  //         throw err;
+  //       }
+  //     });
+  //   } catch (error) {
+  //     console.error(error);
+  //   }
+  // });
+  fs.promises.open(kvSnapshotDir, "w")
+    .then((fd) => {
+      return fd.write(Buffer.from(JSON.stringify(kvStore)))
+    }).then((result) => {
+      console.log(result);
+    }).catch((err) => {
+      if(err){
+        throw err
+      }
+    })
+};
+
+exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
+  // reading kv snapshot need to be synchronous
+  // also recover seek
+  let kvBuf = fs.readFileSync(kvSnapshotDir).toString();
+  let kvStore = {};
+  if (kvBuf.length != 0) {
+    kvStore = JSON.parse(kvBuf) || {};
+  }
+  let seek = this.calculateSeek(logFileDir) || 0;
+  return [seek, kvStore];
+};
+
+
+// then((fd) => {
+//   return fd
+//     .appendFile("\n")
+//     .then(() => {
+//       return fd;
+//     })
+//     .catch(utils.handleErrorDefault);
+// });
