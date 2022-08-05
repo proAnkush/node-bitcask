@@ -181,8 +181,38 @@ class NodeBitcask {
     utils.validateKey(key);
     if (this.kvStore[key]) {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
-      this.tombstones.push({start: this.kvStore[key].address, end: this.kvStore[key].address + this.kvStore[key].totalBytes})
+      this.tombstones.push({start: this.kvStore[key].address, length: this.kvStore[key].totalBytes})
       this.kvStore[key] = undefined
+      this.processTombstones(
+        [...this.tombstones],
+        path.join(this.dataDir, this.logfilename)
+      );
+      this.tombstones = []
+    }
+  }
+  processTombstones(tombstones, logFilePath){
+    if(tombstones.length > 0){
+      fs.open(logFilePath, "r+",(err, fd) => {
+        if(err){
+          throw err
+        }
+        try{
+          tombstones.forEach(tombstone => {
+        
+            let buffer = Buffer.from(Array(tombstone.length+1).join("~"))
+            fs.write(fd, buffer, 0, tombstone.length, tombstone.start, (err, written, buffer) => {
+              if(err){
+                console.log(fd, written, buffer, err);
+                throw err
+              }
+            })
+          });
+        }catch(error){
+          console.log("write");
+          console.error(error);
+        }
+      })
+      
     }
   }
 }
