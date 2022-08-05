@@ -11,6 +11,7 @@ class NodeBitcask {
     this.logfilename = "logfile.bin";
     this.kvSnapshotDir = "./src/kvSnapshot.bin";
     this.kvStore = {};
+    this.tombstones = [];
     this.seek = 0;
     // if (config && config.dataDir) {
     //   this.dataDir = config.dataDir;
@@ -174,6 +175,14 @@ class NodeBitcask {
       if (error) {
         console.error(error);
       }
+    }
+  }
+  deleteLog(key) {
+    utils.validateKey(key);
+    if (this.kvStore[key]) {
+      utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
+      this.tombstones.push({start: this.kvStore[key].address, end: this.kvStore[key].address + this.kvStore[key].totalBytes})
+      this.kvStore[key] = undefined
     }
   }
 }
