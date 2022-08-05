@@ -96,13 +96,3 @@ exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
   let seek = this.calculateSeek(logFileDir) || 0;
   return [seek, kvStore];
 };
-
-
-// then((fd) => {
-//   return fd
-//     .appendFile("\n")
-//     .then(() => {
-//       return fd;
-//     })
-//     .catch(utils.handleErrorDefault);
-// });

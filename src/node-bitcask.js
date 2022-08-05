@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const constants = require("../constants.json");
+
 const utils = require("../utils/utils");
 // todo store data to disk after a certain period. till then maintain it in memory
 class NodeBitcask {
@@ -26,7 +28,7 @@ class NodeBitcask {
     setInterval(() => {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
       console.log("storing kv");
-    }, 60000);
+    }, constants.backupInterval);
   }
 
   /**
@@ -43,8 +45,10 @@ class NodeBitcask {
     }
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
-    let length = totalBytes - (String(key).length + 1);
-    let position = address + (String(key).length + 1);
+    let length =
+      totalBytes - (String(key).length + constants.keySeparatorLength);
+    let position =
+      address + (String(key).length + constants.keySeparatorLength);
     // while (position + length > this.seek) {
     //   length--;
     // }
@@ -76,7 +80,7 @@ class NodeBitcask {
               }
               fs.close(fd, utils.handleErrorDefault);
               // buffer.slice(String(key).length+1, address+totalBytes-1);
-              cb(decodeURIComponent(buffer.toString()));
+              cb(JSON.parse(decodeURIComponent(buffer.toString())).bin);
               // .substring((String(key).length)+1, address+totalBytes-1))
             }
           );
@@ -86,7 +90,7 @@ class NodeBitcask {
             fs.close(fd, utils.handleErrorDefault);
             cb(null);
           }
-        } 
+        }
       });
     }, 0);
   }
@@ -101,16 +105,19 @@ class NodeBitcask {
     /* stores the log */
     let isMessageValid = utils.validateMessage(message);
     let isKeyValid = utils.validateKey(key, this.kvStore);
+    message = JSON.stringify({ bin: message });
     if (isKeyValid && isMessageValid) {
       let data = key + "," + message;
       this.kvStore[key] = {
         address: this.seek,
-        totalBytes: String(key).length + 1 + message.length,
+        totalBytes:
+          String(key).length + constants.keySeparatorLength + message.length,
         checksum: null,
       };
-      this.seek += message.length + 1 + String(key).length;
+      this.seek +=
+        message.length + constants.keySeparatorLength + String(key).length;
       fs.appendFileSync(path.join(this.dataDir, this.logfilename), data);
-      
+
       // store as plain text
     }
   }
@@ -146,6 +153,28 @@ class NodeBitcask {
   }
   putSync() {
     console.log("not yet defined");
+  }
+
+  exportDataSync(newLogFileDir, newKVFileDir) {
+    fs.mkdirSync(newLogFileDir, { recursive: true });
+    fs.mkdirSync(newKVFileDir, { recursive: true });
+    fs.copyFileSync(path.join(this.dataDir, this.logfilename), newLogFileDir);
+    fs.copyFileSync(this.kvSnapshotDir, newKVFileDir);
+  }
+
+  importDataSync(logFilePath, KVFilePath) {
+    try {
+      fs.copyFileSync(logFilePath, path.join(this.dataDir, this.logfilename));
+      fs.copyFileSync(KVFilePath, this.kvSnapshotDir);
+      [this.seek, this.kvStore] = utils.readKVSnapshot(
+        this.kvSnapshotDir,
+        path.join(this.dataDir, this.logfilename)
+      );
+    } catch (error) {
+      if (error) {
+        console.error(error);
+      }
+    }
   }
 }
 
