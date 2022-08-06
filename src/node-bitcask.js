@@ -29,7 +29,21 @@ class NodeBitcask {
     setInterval(() => {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
       console.log("storing kv");
-    }, constants.backupInterval);
+    }, constants.backupKVInterval);
+    setInterval(() => {
+      console.log("compacin");
+      this.compaction({...this.kvStore})
+    }, 10000);
+    // setInterval(() => {
+    //   this.processTombstones(
+    //     [...this.tombstones],
+    //     path.join(this.dataDir, this.logfilename)
+    //   );
+    //   this.tombstones = []
+    // }, constants.processTombstoneInterval);
+    // setInterval(() => {
+      
+    // }, constants.compactionInterval);
   }
 
   /**
@@ -40,61 +54,67 @@ class NodeBitcask {
    * @returns
    */
   get(key, cb) {
-    utils.validateKey(key);
+    utils.validateKey(key, this.kvStore);
     if (this.kvStore[key] == undefined) {
       return null;
     }
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
-    let length =
-      totalBytes - (String(key).length + constants.keySeparatorLength);
-    let position =
-      address + (String(key).length + constants.keySeparatorLength);
-    // while (position + length > this.seek) {
-    //   length--;
-    // }
+    utils.getStoredContent(path.join(this.dataDir, this.logfilename), address, totalBytes, (data) => {
+      if(!data){
+        cb(null)
+      }else{
+        cb(JSON.parse(data.substr((String(key).length + 1), totalBytes)).bin)
+      }
 
-    // read to buffer
-    let readToBuffer = Buffer.alloc(length);
+    })
+    // let length =
+    //   totalBytes - (String(key).length + constants.keySeparatorLength);
+    // let position =
+    //   address + (String(key).length + constants.keySeparatorLength);
 
-    // go to address in the file and start reading
-    setTimeout(() => {
-      fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
-        if (err) {
-          throw err;
-        }
-        if (!fd) {
-          throw Error("invalid fd");
-        }
-        try {
-          // let length = totalBytes-(String(key).length+1);
-          // let position = address + String(key).length + 1;
-          fs.read(
-            fd,
-            readToBuffer,
-            0,
-            length,
-            position,
-            (err, bytesRead, buffer) => {
-              if (err) {
-                console.error(err);
-              }
-              fs.close(fd, utils.handleErrorDefault);
-              // buffer.slice(String(key).length+1, address+totalBytes-1);
-              cb(JSON.parse(decodeURIComponent(buffer.toString())).bin);
-              // .substring((String(key).length)+1, address+totalBytes-1))
-            }
-          );
-        } catch (error) {
-          if (error) {
-            console.error(error);
-            fs.close(fd, utils.handleErrorDefault);
-            cb(null);
-          }
-        }
-      });
-    }, 0);
+    // // read to buffer
+    // let readToBuffer = Buffer.alloc(length);
+
+    // // go to address in the file and start reading
+    // setTimeout(() => {
+    //   fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
+    //     if (err) {
+    //       throw err;
+    //     }
+    //     if (!fd) {
+    //       throw Error("invalid fd");
+    //     }
+    //     try {
+    //       fs.read(
+    //         fd,
+    //         readToBuffer,
+    //         0,
+    //         length,
+    //         position,
+    //         (err, bytesRead, buffer) => {
+    //           if (err) {
+    //             console.error(err);
+    //           }
+    //           fs.close(fd, utils.handleErrorDefault);
+    //           // buffer.slice(String(key).length+1, address+totalBytes-1);
+    //           cb(JSON.parse(decodeURIComponent(buffer.toString())).bin);
+    //           // .substring((String(key).length)+1, address+totalBytes-1))
+    //         }
+    //       );
+    //     } catch (error) {
+    //       if (error) {
+    //         console.error(error);
+    //         fs.close(fd, utils.handleErrorDefault);
+    //         cb(null);
+    //       }
+    //     }
+    //   });
+    // }, 0);
   }
+
+
+
   /**
    *
    * @param {[String]} key [a key which can be used as index]
@@ -178,43 +198,62 @@ class NodeBitcask {
     }
   }
   deleteLog(key) {
-    utils.validateKey(key);
+    utils.validateKey(key, this.kvStore);
     if (this.kvStore[key]) {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
       this.tombstones.push({start: this.kvStore[key].address, length: this.kvStore[key].totalBytes})
-      this.kvStore[key] = undefined
-      this.processTombstones(
-        [...this.tombstones],
-        path.join(this.dataDir, this.logfilename)
-      );
-      this.tombstones = []
+      // this.kvStore[key] = undefined
+      this.kvStore[key].deleted = true
     }
   }
-  processTombstones(tombstones, logFilePath){
-    if(tombstones.length > 0){
-      fs.open(logFilePath, "r+",(err, fd) => {
-        if(err){
-          throw err
-        }
-        try{
-          tombstones.forEach(tombstone => {
-        
-            let buffer = Buffer.from(Array(tombstone.length+1).join("~"))
-            fs.write(fd, buffer, 0, tombstone.length, tombstone.start, (err, written, buffer) => {
-              if(err){
-                console.log(fd, written, buffer, err);
-                throw err
+
+  compaction(tmpKVStore){
+    // either copy only those whose key exists, or delete the existing ones?
+    fs.writeFile(path.join(__dirname, "..","data","tmpLog.bin"), "", (err) => {
+      if(err){
+        console.log("cannot open");
+        throw err
+      }
+      try {
+        let writerStream = fs.createWriteStream(
+          path.join(__dirname, "..", "data", "tmpLog.bin")
+        );
+        let tmpSeek = 0;
+        //  iterate over aall keys
+          // get the data from actual log file for this key
+          // store the key to tmpKVStore, and the data to tmpLog
+          // !note if some keys are marked deleted during compaction, those will be taken care of in the next interval
+          // after compaction, update actual log and tmplog
+          // ? remeber to handle newly added logs
+
+        for(let key of Object.keys(tmpKVStore)){
+          if(tmpKVStore[key].deleted == true){
+            tmpKVStore[key] = undefined;
+          }else{
+            utils.getStoredContent(path.join(this.dataDir, this.logfilename), tmpKVStore[key].address, tmpKVStore[key].totalBytes, (content) => {
+              if(!content){
+                throw Error("cannot read ", key)
               }
+              console.log("Wrote, ", content);
+              writerStream.write(content);
+              tmpKVStore[key].address = tmpSeek;
+              tmpSeek += tmpKVStore[key].totalBytes;
             })
-          });
-        }catch(error){
-          console.log("write");
-          console.error(error);
+          }
+          // this.KVStore = tmpKVStore;
+          // fs.copy tmplog to logfilepath
         }
-      })
-      
-    }
+        // console.log(tmpKVStore);
+        // console.log(this.kvStore);
+        writerStream.on("close", () => console.log("closed"))
+        
+      } catch (error) {
+        console.log(error);
+      }
+    })
+
   }
+
 }
 
 module.exports = NodeBitcask;

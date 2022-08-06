@@ -26,7 +26,7 @@ const myNodeBitcask = new NodeBitcask({ dataDir: "./data" });
 //   path.join(__dirname, "database")
 // );
 myNodeBitcask.importDataSync(path.join(__dirname, "database", "log.bin"), path.join(__dirname, "database", "kv.bin"));
-myNodeBitcask.deleteLog("key");
+// myNodeBitcask.deleteLog("key");
 setTimeout(() => {
   myNodeBitcask.get("key2", console.log); // keto4 kya
 }, 2000);
