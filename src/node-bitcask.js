@@ -34,11 +34,13 @@ class NodeBitcask {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
     }, constants.backupKVInterval);
     setInterval(() => {
-      if(this.isCompactionInProgress || this.unreferencedBytesCount < 100){
+      if (this.isCompactionInProgress || this.unreferencedBytesCount < 100) {
         return;
-      }else{
+      } else {
         this.isCompactionInProgress = true;
-        this.isCompactionInProgress = this.compaction(JSON.parse(JSON.stringify(this.kvStore)))
+        this.isCompactionInProgress = this.compaction(
+          JSON.parse(JSON.stringify(this.kvStore))
+        );
       }
     }, constants.compactionInterval);
   }
@@ -46,9 +48,8 @@ class NodeBitcask {
   /**
    *
    * @param {String} key
-   * @param {function} cb callback which will be called with the output.
-   *
-   * @returns
+   * @param {function} cb
+   * finds the data corresponding to the `key` and passes down the data to `cb`
    */
   get(key, cb) {
     utils.validateKey(key, this.kvStore);
@@ -57,23 +58,51 @@ class NodeBitcask {
     }
     let address = this.kvStore[key].address;
     let totalBytes = this.kvStore[key].totalBytes;
-    utils.getStoredContent(path.join(this.dataDir, this.logfilename), address, totalBytes, (data) => {
-      if(!data){
-        cb(null)
-      }else{
-        cb(JSON.parse(data.substr((String(key).length + 1), totalBytes)).bin)
+    if (totalBytes > 1000000 && totalBytes <= 1000000) {
+      console.warn(
+        "data is around 1 Mb, prefer to use getStream(key, cb) for big data"
+      );
+    }
+    if (totalBytes > 1000000 * 100) {
+      console.error(
+        "data is bigger than 100Mb, please use getStream(key, cb), aborting"
+      );
+      return;
+    }
+    utils.getStoredContent(
+      path.join(this.dataDir, this.logfilename),
+      address,
+      totalBytes,
+      (data) => {
+        if (!data) {
+          cb(null);
+        } else {
+          try {
+            let parsedJSON = JSON.parse(
+              data.substr(String(key).length + 1, totalBytes)
+            );
+            cb(parsedJSON.bin);
+          } catch (error) {
+            if (error) {
+              cb(
+                data.substr(
+                  String(key).length + 1 + constants.messagePaddingLLength,
+                  totalBytes -
+                    (String(key).length + constants.messagePaddingRLength)
+                )
+              );
+            }
+          }
+        }
       }
-    })
+    );
   }
-
-
 
   /**
    *
-   * @param {[String]} key [a key which can be used as index]
-   * @param {[String]} message [a buffer object for the value relating to provided key]
-   * @return
-   * log stores the key to a json object and the message object out of memory for efficient speed and memory optimisation
+   * @param {[String]} key
+   * @param {[String]} message
+   * log stores the `key` to a json object and the `message` object out of memory for efficient speed and memory optimisation
    */
   log(key, message) {
     /* stores the log */
@@ -82,8 +111,8 @@ class NodeBitcask {
     message = JSON.stringify({ bin: message });
     if (isKeyValid && isMessageValid) {
       let data = key + "," + message;
-      if(this.kvStore[key]){
-        this.unreferencedBytesCount += this.kvStore[key].totalBytes
+      if (this.kvStore[key]) {
+        this.unreferencedBytesCount += this.kvStore[key].totalBytes;
       }
       this.kvStore[key] = {
         address: this.seek,
@@ -119,12 +148,82 @@ class NodeBitcask {
   getLog(key, cb) {
     return this.get(key, cb);
   }
-  putLogStream(key, messageStream) {
+
+  /**
+   *
+   * @param {String} key
+   * @param {ReadableStream} messageStream
+   * `messageStream` will be used to write the data corresponding to the `key`
+   */
+  putStream(key, messageStream) {
     // get chunks from stream, and put them to file, increment totalbytes and write data in contiguous sequence
+    // write keyName, json padding , content and then json end padding
+    let isKeyValid = utils.validateKey(key, this.kvStore);
+    let fw = fs.createWriteStream(path.join(this.dataDir, this.logfilename), {
+      flags: "a",
+    });
+    this.kvStore[key] = {
+      address: this.seek,
+      checksum: null,
+    };
+    let len = 0;
+    let startPadding = `,{"bin":"`;
+    let endPadding = `"}`;
+    let chunkCount = 0;
+    fw.on("open", () => {
+      fw.write(key + startPadding);
+      len += String(key).length;
+      len += startPadding.length;
+      messageStream.on("data", (chunk) => {
+        chunkCount++;
+        len += decodeURIComponent(chunk.toString()).length;
+        fw.write(decodeURIComponent(chunk.toString()));
+      });
+      messageStream.on("close", (err) => {
+        console.log("CHUNK", chunkCount);
+        fw.write(endPadding);
+        len += endPadding.length;
+        this.seek += len;
+        this.kvStore[key].totalBytes = len;
+        // console.log(len, startPadding, endPadding, messageStream);
+      });
+    });
   }
-  getLogStream(key, cb) {
+
+  /**
+   *
+   * @param {String} key
+   * @param {function} cb
+   * finds data for given `key`, which will then be passed down to `cb` as a `ReadStream` object.
+   */
+  getStream(key, cb) {
     // if total bytes is BIG, then do cb with stream of data
+    utils.validateKey(key, this.kvStore);
+    if (this.kvStore[key] == undefined) {
+      return null;
+    }
+    let address = this.kvStore[key].address;
+    let totalBytes = this.kvStore[key].totalBytes;
+    if (totalBytes < 1000000) {
+      console.warn(
+        "data is less than 1 Mb, prefer to use get(key, cb) for small data"
+      );
+    }
+    let start =
+      address +
+      String(key).length +
+      constants.keySeparatorLength +
+      constants.messagePaddingLLength;
+    let end = address + totalBytes - constants.messagePaddingRLength;
+    let fr = fs.createReadStream(path.join(this.dataDir, this.logfilename), {
+      start: start,
+      end: end - 1,
+    });
+    fr.on("open", () => {
+      cb(fr);
+    });
   }
+
   getSync() {
     console.log("not yet defined");
   }
@@ -132,6 +231,12 @@ class NodeBitcask {
     console.log("not yet defined");
   }
 
+  /**
+   * 
+   * @param {import("fs").PathLike} newLogFileDir 
+   * @param {import("fs").PathLike} newKVFileDir 
+   * Synchronously exports the KV store to `newKVFileDir` and the disk data for corresponding keys to `newLogFileDir`
+   */
   exportDataSync(newLogFileDir, newKVFileDir) {
     fs.mkdirSync(newLogFileDir, { recursive: true });
     fs.mkdirSync(newKVFileDir, { recursive: true });
@@ -139,6 +244,13 @@ class NodeBitcask {
     fs.copyFileSync(this.kvSnapshotDir, newKVFileDir);
   }
 
+  /**
+   *
+   * @param {import("fs").PathLike} logFilePath
+   * @param {import("fs").PathLike} KVFilePath
+   * `logFilePath` is path to the huge disk data, and `KVFilePath` contains the in memory kv store.
+   * From both of these files, the database can be reconstructed Synchronously.
+   */
   importDataSync(logFilePath, KVFilePath) {
     try {
       fs.copyFileSync(logFilePath, path.join(this.dataDir, this.logfilename));
@@ -153,19 +265,33 @@ class NodeBitcask {
       }
     }
   }
+
+  /**
+   *
+   * @param {String} key 
+   * deletes a key, and its corresponding data
+   */
   deleteLog(key) {
     utils.validateKey(key, this.kvStore);
     if (this.kvStore[key]) {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
-      this.tombstones.push({start: this.kvStore[key].address, length: this.kvStore[key].totalBytes})
-      this.kvStore[key].deleted = true
-      this.unreferencedBytesCount += this.kvStore[key].totalBytes
+      this.tombstones.push({
+        start: this.kvStore[key].address,
+        length: this.kvStore[key].totalBytes,
+      });
+      this.kvStore[key].deleted = true;
+      this.unreferencedBytesCount += this.kvStore[key].totalBytes;
     }
   }
 
-  compaction(tmpKVStore){
+  /**
+   * 
+   * @param {Object} tmpKVStore 
+   * de-fragments the unreferenced data, and frees up disk.
+   */
+  compaction(tmpKVStore) {
     // either copy only those whose key exists, or delete the existing ones?
-    if(!tmpKVStore){
+    if (!tmpKVStore) {
       this.isCompactionInProgress = false;
       return false;
     }
@@ -200,7 +326,7 @@ class NodeBitcask {
                   writerStream.write(content);
                   tmpKVStore[key].address = tmpSeek;
                   tmpSeek += tmpKVStore[key].totalBytes;
-                  tmpKVStore[key].shed = true
+                  tmpKVStore[key].shed = true;
                 }
               );
             }
@@ -210,18 +336,21 @@ class NodeBitcask {
             this.seek = tmpSeek;
             this.kvStore = tmpKVStore;
             this.unreferencedBytesCount = 0;
-            
+
             fs.copyFileSync(
               path.join(
                 (__dirname, "..", "data", "tmpLog.bin"),
                 path.join(path.join(this.dataDir, this.logfilename))
               )
             );
-            fs.unlink(path.join(__dirname, "..", "data", "tmpLog.bin"), (err) => {
-              if(err){
-                console.error(err);
+            fs.unlink(
+              path.join(__dirname, "..", "data", "tmpLog.bin"),
+              (err) => {
+                if (err) {
+                  console.error(err);
+                }
               }
-            });
+            );
             return false;
           });
         } catch (error) {
@@ -230,9 +359,7 @@ class NodeBitcask {
         }
       }
     );
-
   }
-
 }
 
 module.exports = NodeBitcask;

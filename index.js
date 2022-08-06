@@ -30,6 +30,30 @@ myNodeBitcask.importDataSync(path.join(__dirname, "database", "log.bin"), path.j
 setTimeout(() => {
   myNodeBitcask.get("key2", console.log); // keto4 kya
 }, 2000);
+myNodeBitcask.getStream("key2", (fr) => {
+  console.log("test");
+  console.log(fr);
+  fr.on("data", (chunk) => {
+    console.log(decodeURIComponent(chunk.toString()));
+  });
+});
+let readStream = fs.createReadStream(path.join(__dirname, "abc.bin"), {
+  highWaterMark: 1024,
+});
+readStream.on("open", () => {
+  console.log(readStream);
+
+  myNodeBitcask.putStream("key3", readStream);
+});
+setTimeout(() => {
+  // myNodeBitcask.getStream("key3", (fr) => {
+  //   console.log("tesst3");
+  //   fr.on("data", (chunk) => {
+  //     console.log(decodeURIComponent(chunk.toString()));
+  //   });
+  // });
+  myNodeBitcask.get("key3", console.log);
+}, 3000);
 // setTimeout(() => {
 //   myNodeBitcask.unload()
 // }, 1000);

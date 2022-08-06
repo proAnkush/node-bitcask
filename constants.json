@@ -2,5 +2,7 @@
   "backupKVInterval": 10000,
   "keySeparatorLength": 1,
   "processTombstoneInterval": 60000,
-  "compactionInterval": 70000
+  "compactionInterval": 70000,
+  "messagePaddingLLength": 7,
+  "messagePaddingRLength": 1
 }

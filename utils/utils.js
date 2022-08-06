@@ -1,5 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+
+/**
+ * 
+ * @param {Error} err 
+ * can be used as callback for promises
+ */
 exports.handleErrorDefault = (err) => {
   if (err) {
     console.error(err);
@@ -8,8 +14,13 @@ exports.handleErrorDefault = (err) => {
   return false;
 };
 
+/**
+ * 
+ * @param {String} message 
+ * validates a `message` string, returns `true` if message is valid
+ */
 exports.validateMessage = (message) => {
-  // return false if invalid, and true if valid
+  // return `false if invalid, and `true` if valid
   if (typeof message === "undefined") {
     console.log("message argument is not optional");
     return false;
@@ -21,6 +32,12 @@ exports.validateMessage = (message) => {
   return true;
 };
 
+/**
+ * 
+ * @param {String} key 
+ * @param {Object} kvStore 
+ * validates `key` and also checks if `key` is in `kvstore`, returns `true` if valid
+ */
 exports.validateKey = (key, kvStore) => {
   if (typeof key === "undefined") {
     console.error("key cannot be undefined");
@@ -36,6 +53,11 @@ exports.validateKey = (key, kvStore) => {
   return true;
 };
 
+/**
+ * 
+ * @param {import("fs").PathLike} logFileDir 
+ * calculates where the `seek` should be placed for writing the content at the specific positions
+ */
 exports.calculateSeek = (logFileDir) => {
   // size of file is the current seek position
   let stats = fs.statSync(logFileDir);
@@ -43,6 +65,11 @@ exports.calculateSeek = (logFileDir) => {
   return fileSizeInBytes;
 };
 
+/**
+ * 
+ * @param {PathLike} pathToFile
+ * removes the entire content of the file, without deleting the file. 
+ */
 exports.empty = (pathToFile) => {
   fs.open(pathToFile, "w", (err, fd) => {
     if (err) {
@@ -59,6 +86,12 @@ exports.empty = (pathToFile) => {
   });
 };
 
+/**
+ * 
+ * @param {PathLike} kvSnapshotDir
+ * @param {Object} kvStore 
+ * stores the key-value store to `kvSnapshotDir` for persisting the database, since kvStore is on memory, power cut will result in data loss, hence this is essential
+ */
 exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
   fs.promises
     .open(kvSnapshotDir, "w")
@@ -75,6 +108,13 @@ exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
     });
 };
 
+/**
+ * 
+ * @param {} kvSnapshotDir
+ * @param {} logFileDir 
+ * 
+ * reconstructs `kvstore` from the `kvSnapshotDir` on-disk snapshot .
+ */
 exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
   // reading kv snapshot need to be synchronous
   // also recover seek
