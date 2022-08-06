@@ -5,6 +5,8 @@ const constants = require("../constants.json");
 
 const utils = require("../utils/utils");
 // todo store data to disk after a certain period. till then maintain it in memory
+// todo create a variable that will keep count of unreferenced/garabage bytes in the file
+// 
 class NodeBitcask {
   constructor() {
     this.dataDir = path.join(__dirname, "..", "data");
@@ -13,6 +15,7 @@ class NodeBitcask {
     this.kvStore = {};
     this.tombstones = [];
     this.seek = 0;
+    this.unreferencedBytesCount = 0;
     this.isCompactionInProgress = false;
     // if (config && config.dataDir) {
     //   this.dataDir = config.dataDir;
@@ -31,7 +34,7 @@ class NodeBitcask {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
     }, constants.backupKVInterval);
     setInterval(() => {
-      if(this.isCompactionInProgress){
+      if(this.isCompactionInProgress || this.unreferencedBytesCount < 100){
         return;
       }else{
         this.isCompactionInProgress = true;
@@ -79,6 +82,9 @@ class NodeBitcask {
     message = JSON.stringify({ bin: message });
     if (isKeyValid && isMessageValid) {
       let data = key + "," + message;
+      if(this.kvStore[key]){
+        this.unreferencedBytesCount += this.kvStore[key].totalBytes
+      }
       this.kvStore[key] = {
         address: this.seek,
         totalBytes:
@@ -153,6 +159,7 @@ class NodeBitcask {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
       this.tombstones.push({start: this.kvStore[key].address, length: this.kvStore[key].totalBytes})
       this.kvStore[key].deleted = true
+      this.unreferencedBytesCount += this.kvStore[key].totalBytes
     }
   }
 
@@ -200,8 +207,10 @@ class NodeBitcask {
           }
           writerStream.on("close", () => {
             // all the writing has finished,
-            this.seek = tmpSeek,
-            this.kvStore = tmpKVStore,
+            this.seek = tmpSeek;
+            this.kvStore = tmpKVStore;
+            this.unreferencedBytesCount = 0;
+            
             fs.copyFileSync(
               path.join(
                 (__dirname, "..", "data", "tmpLog.bin"),

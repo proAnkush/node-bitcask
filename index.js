@@ -38,6 +38,8 @@ setTimeout(() => {
 // myNodeBitcask.createKVSnapshot();
 // myNodeBitcask.readKVSnapshot()
 
-module.exports = NodeBitcask
+exports.get = myNodeBitcask.get;
+exports.log = myNodeBitcask.log;
+exports.put = myNodeBitcask.put;
 
 
