@@ -37,7 +37,6 @@ exports.validateKey = (key, kvStore) => {
 };
 
 exports.calculateSeek = (logFileDir) => {
-  // assign seek
   // size of file is the current seek position
   let stats = fs.statSync(logFileDir);
   let fileSizeInBytes = stats.size;
@@ -61,21 +60,6 @@ exports.empty = (pathToFile) => {
 };
 
 exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
-  // fs.open(kvSnapshotDir, "w", (err, fd) => {
-  //   if (err) {
-  //     throw err;
-  //   }
-  //   try {
-  //     let kvBuffer = Buffer.from(JSON.stringify(kvStore));
-  //     fs.write(fd, kvBuffer, (err) => {
-  //       if (err) {
-  //         throw err;
-  //       }
-  //     });
-  //   } catch (error) {
-  //     console.error(error);
-  //   }
-  // });
   fs.promises
     .open(kvSnapshotDir, "w")
     .then((fd) => {

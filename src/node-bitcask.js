@@ -13,6 +13,7 @@ class NodeBitcask {
     this.kvStore = {};
     this.tombstones = [];
     this.seek = 0;
+    this.isCompactionInProgress = false;
     // if (config && config.dataDir) {
     //   this.dataDir = config.dataDir;
     // }
@@ -28,22 +29,15 @@ class NodeBitcask {
     }
     setInterval(() => {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
-      console.log("storing kv");
     }, constants.backupKVInterval);
     setInterval(() => {
-      console.log("compacin");
-      this.compaction({...this.kvStore})
-    }, 10000);
-    // setInterval(() => {
-    //   this.processTombstones(
-    //     [...this.tombstones],
-    //     path.join(this.dataDir, this.logfilename)
-    //   );
-    //   this.tombstones = []
-    // }, constants.processTombstoneInterval);
-    // setInterval(() => {
-      
-    // }, constants.compactionInterval);
+      if(this.isCompactionInProgress){
+        return;
+      }else{
+        this.isCompactionInProgress = true;
+        this.isCompactionInProgress = this.compaction(JSON.parse(JSON.stringify(this.kvStore)))
+      }
+    }, constants.compactionInterval);
   }
 
   /**
@@ -66,51 +60,7 @@ class NodeBitcask {
       }else{
         cb(JSON.parse(data.substr((String(key).length + 1), totalBytes)).bin)
       }
-
     })
-    // let length =
-    //   totalBytes - (String(key).length + constants.keySeparatorLength);
-    // let position =
-    //   address + (String(key).length + constants.keySeparatorLength);
-
-    // // read to buffer
-    // let readToBuffer = Buffer.alloc(length);
-
-    // // go to address in the file and start reading
-    // setTimeout(() => {
-    //   fs.open(path.join(this.dataDir, this.logfilename), "r", (err, fd) => {
-    //     if (err) {
-    //       throw err;
-    //     }
-    //     if (!fd) {
-    //       throw Error("invalid fd");
-    //     }
-    //     try {
-    //       fs.read(
-    //         fd,
-    //         readToBuffer,
-    //         0,
-    //         length,
-    //         position,
-    //         (err, bytesRead, buffer) => {
-    //           if (err) {
-    //             console.error(err);
-    //           }
-    //           fs.close(fd, utils.handleErrorDefault);
-    //           // buffer.slice(String(key).length+1, address+totalBytes-1);
-    //           cb(JSON.parse(decodeURIComponent(buffer.toString())).bin);
-    //           // .substring((String(key).length)+1, address+totalBytes-1))
-    //         }
-    //       );
-    //     } catch (error) {
-    //       if (error) {
-    //         console.error(error);
-    //         fs.close(fd, utils.handleErrorDefault);
-    //         cb(null);
-    //       }
-    //     }
-    //   });
-    // }, 0);
   }
 
 
@@ -202,55 +152,75 @@ class NodeBitcask {
     if (this.kvStore[key]) {
       utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
       this.tombstones.push({start: this.kvStore[key].address, length: this.kvStore[key].totalBytes})
-      // this.kvStore[key] = undefined
       this.kvStore[key].deleted = true
     }
   }
 
   compaction(tmpKVStore){
     // either copy only those whose key exists, or delete the existing ones?
-    fs.writeFile(path.join(__dirname, "..","data","tmpLog.bin"), "", (err) => {
-      if(err){
-        console.log("cannot open");
-        throw err
-      }
-      try {
-        let writerStream = fs.createWriteStream(
-          path.join(__dirname, "..", "data", "tmpLog.bin")
-        );
-        let tmpSeek = 0;
-        //  iterate over aall keys
-          // get the data from actual log file for this key
-          // store the key to tmpKVStore, and the data to tmpLog
-          // !note if some keys are marked deleted during compaction, those will be taken care of in the next interval
-          // after compaction, update actual log and tmplog
-          // ? remeber to handle newly added logs
-
-        for(let key of Object.keys(tmpKVStore)){
-          if(tmpKVStore[key].deleted == true){
-            tmpKVStore[key] = undefined;
-          }else{
-            utils.getStoredContent(path.join(this.dataDir, this.logfilename), tmpKVStore[key].address, tmpKVStore[key].totalBytes, (content) => {
-              if(!content){
-                throw Error("cannot read ", key)
-              }
-              console.log("Wrote, ", content);
-              writerStream.write(content);
-              tmpKVStore[key].address = tmpSeek;
-              tmpSeek += tmpKVStore[key].totalBytes;
-            })
-          }
-          // this.KVStore = tmpKVStore;
-          // fs.copy tmplog to logfilepath
+    if(!tmpKVStore){
+      this.isCompactionInProgress = false;
+      return false;
+    }
+    // create tmp file
+    fs.writeFile(
+      path.join(__dirname, "..", "data", "tmpLog.bin"),
+      "",
+      (err) => {
+        if (err) {
+          console.error(err);
+          return false;
         }
-        // console.log(tmpKVStore);
-        // console.log(this.kvStore);
-        writerStream.on("close", () => console.log("closed"))
-        
-      } catch (error) {
-        console.log(error);
+        try {
+          let writerStream = fs.createWriteStream(
+            path.join(__dirname, "..", "data", "tmpLog.bin")
+          );
+          let tmpSeek = 0;
+
+          for (let key of Object.keys(tmpKVStore)) {
+            if (tmpKVStore[key].deleted == true) {
+              tmpKVStore[key] = undefined;
+            } else {
+              utils.getStoredContent(
+                path.join(this.dataDir, this.logfilename),
+                tmpKVStore[key].address,
+                tmpKVStore[key].totalBytes,
+                (content) => {
+                  if (!content) {
+                    throw Error("cannot read ", key);
+                  }
+                  console.log("Wrote, ", content);
+                  writerStream.write(content);
+                  tmpKVStore[key].address = tmpSeek;
+                  tmpSeek += tmpKVStore[key].totalBytes;
+                  tmpKVStore[key].shed = true
+                }
+              );
+            }
+          }
+          writerStream.on("close", () => {
+            // all the writing has finished,
+            this.seek = tmpSeek,
+            this.kvStore = tmpKVStore,
+            fs.copyFileSync(
+              path.join(
+                (__dirname, "..", "data", "tmpLog.bin"),
+                path.join(path.join(this.dataDir, this.logfilename))
+              )
+            );
+            fs.unlink(path.join(__dirname, "..", "data", "tmpLog.bin"), (err) => {
+              if(err){
+                console.error(err);
+              }
+            });
+            return false;
+          });
+        } catch (error) {
+          console.log(error);
+          return false;
+        }
       }
-    })
+    );
 
   }
 
