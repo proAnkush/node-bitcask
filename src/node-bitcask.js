@@ -6,7 +6,7 @@ const constants = require("../constants.json");
 const utils = require("../utils/utils");
 // todo store data to disk after a certain period. till then maintain it in memory
 // todo create a variable that will keep count of unreferenced/garabage bytes in the file
-// 
+// todo getPromises
 class NodeBitcask {
   constructor() {
     this.dataDir = path.join(__dirname, "..", "data");
