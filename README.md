@@ -15,12 +15,25 @@ npm install node-bitcask
 ```
 
 ## Instantiation
->TBD
+---
+Using node-bitcask is extremely simple. node-bitcask can be imported with ES5 `require()`.
+```js
+const nb = require('node-bitcask');
+nb.put("zebra", "an African wild animal that looks like a horse, with black or brown and white lines on its body");
+nb.get("zebra");
+```
 
 ## API
 ---
+- [Inserting data](#inserting-data)
+- [Accessing data](#accessing-data)
+- [Exporting the database](#Exporting-the-database)
+- [Importing previous database](#Importing-previous-database)
+- [Deleting the database](#Deleting-the-database)
+- [Inserting large data with Stream](#Inserting-large-data-with-Stream)
+- [Accessing data through Stream](#Accessing-data-through-Stream)
 
-### **put**
+### **Inserting data**
 Data can be simply stored with:
 ```js
 put(key, data)
@@ -28,7 +41,7 @@ put(key, data)
 `key` is unique entity String that can be used to refer back to the  `data`. Put returns void, and synchronously stores the data.<br>
 **Note:** for large data (>100mb) use [putStream](#put-stream)
 
-### **get**
+### **Accessing data**
 To get back your data use:
 ```js
 get(key, callback)
@@ -36,7 +49,7 @@ get(key, callback)
 `get` synchronously find `key` referenced data and on success, provides the data to given callback. In case no data is found (maybe due to deleted key, incomplete storage, power-outage, bugs etc) `callback` will be invoked with `null` argument.<br>
 **Note:** for large data (>100mb) use [getStream](#get-stream)
 
-### **export**
+### **Exporting the database**
 To export the database essential files
 ```js
 exportDataSync(newLogFileDir, newKVFileDir)
@@ -46,14 +59,14 @@ exportDataSync(newLogFileDir, newKVFileDir)
 exportsDataSync accepts two `fs.PathLike` arguments which are used to copy the data to. <br>
 It synchronously copies all the data to given paths.
 
-### **import**
+### **Importing previous database**
 To import previously exported data use:
 ```js
 importDataSync(oldLogFileDir, oldKVFileDir)
 ```
 `oldLogFileDir` and `oldKVFileDir` are paths to where kvfile and logfiles were copied to. `importDataSync` first synchronously copies the data to its desired directory. After the copying succeeds the entire database is reconstructed from these files.
 
-### **delete**
+### **Deleting the database**
 
 ```js
 deleteLog(key)
@@ -63,7 +76,7 @@ Deletes the key. <br>
 <!-- actually the key still exists in the kv store but it is marked as a tombstone. The data is technically deleted when the compaction process starts. The compaction process reduces the size of logfile. -->
 <br>
 
-### **put stream**
+### **Inserting large data with Stream**
 For storing large data use:
 ```js
 putStream(key:String, messageStream:ReadableStream)
@@ -72,7 +85,7 @@ putStream(key:String, messageStream:ReadableStream)
 `messageStream` is a ReadableStream, on which `putStream` will listen for 'data' and 'close' events.
     **Note!** please make sure `messageStream` emits close event.
 
-### **get stream**
+### **Accessing data through Stream**
 Similarly for accessing large data, Streams can be used.
 ```js
 getStream(key, callback)
@@ -81,7 +94,17 @@ getStream(key, callback)
 
 ## Configuration
 ---
-> TBD
+node-bitcask allows for greater configuration of where data is stored, when to do compaction, etc. Configuring node-bitcask is as simple as: 
+```js
+const nb = require("node-bitcask");
+nb.configure({
+    dataDir: "./some/arbitrary/folder",
+    kvSnapshotPath: "./path/to/file",
+    backupKVInterval: 1000, //in ms
+    compactionInterval: 10000, //in ms
+})
+```
+You can omit any key that you dont want to configure, and its value will stay to default .
 
 ## References
 ---

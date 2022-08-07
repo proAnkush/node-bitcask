@@ -9,17 +9,24 @@ const utils = require("../utils/utils");
 // todo getPromises
 class NodeBitcask {
   constructor() {
+    // instance variables
     this.dataDir = path.join(__dirname, "..", "data");
     this.logfilename = "logfile.bin";
     this.kvSnapshotDir = "./src/kvSnapshot.bin";
+    this.compactionInterval = constants.compactionInterval;
+    this.backupKVInterval = constants.backupKVInterval;
     this.kvStore = {};
     this.tombstones = [];
     this.seek = 0;
     this.unreferencedBytesCount = 0;
     this.isCompactionInProgress = false;
-    // if (config && config.dataDir) {
-    //   this.dataDir = config.dataDir;
-    // }
+
+    setTimeout(() => {
+      utils.customUpdatingInterval(
+        () => utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore),
+        this.backupKVInterval
+      );
+    }, this.backupKVInterval);
     [this.seek, this.kvStore] = utils.readKVSnapshot(
       this.kvSnapshotDir,
       path.join(this.dataDir, this.logfilename)
@@ -30,19 +37,29 @@ class NodeBitcask {
     } catch {
       // error because dir exists
     }
-    setInterval(() => {
-      utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
-    }, constants.backupKVInterval);
-    setInterval(() => {
-      if (this.isCompactionInProgress || this.unreferencedBytesCount < 100) {
-        return;
-      } else {
-        this.isCompactionInProgress = true;
-        this.isCompactionInProgress = this.compaction(
-          JSON.parse(JSON.stringify(this.kvStore))
-        );
-      }
-    }, constants.compactionInterval);
+    // setInterval(() => {
+    //   utils.createKVSnapshot(this.kvSnapshotDir, this.kvStore);
+    // }, constants.backupKVInterval);
+    // setInterval(() => {
+    //   if (this.isCompactionInProgress || this.unreferencedBytesCount < 100) {
+    //     return;
+    //   } else {
+    //     this.isCompactionInProgress = true;
+    //     this.isCompactionInProgress = this.compaction(
+    //       JSON.parse(JSON.stringify(this.kvStore))
+    //     );
+    //   }
+    // }, constants.compactionInterval);
+    setTimeout(() => {
+      // if (this.isCompactionInProgress || this.unreferencedBytesCount < 100) {
+      //   return;
+      // } else {
+      utils.customUpdatingInterval(() => {
+        this.compaction(JSON.parse(JSON.stringify(this.kvStore))),
+          this.compactionInterval;
+      });
+      // }
+    }, this.compactionInterval);
   }
 
   /**
@@ -232,9 +249,9 @@ class NodeBitcask {
   }
 
   /**
-   * 
-   * @param {import("fs").PathLike} newLogFileDir 
-   * @param {import("fs").PathLike} newKVFileDir 
+   *
+   * @param {import("fs").PathLike} newLogFileDir
+   * @param {import("fs").PathLike} newKVFileDir
    * Synchronously exports the KV store to `newKVFileDir` and the disk data for corresponding keys to `newLogFileDir`
    */
   exportDataSync(newLogFileDir, newKVFileDir) {
@@ -268,7 +285,7 @@ class NodeBitcask {
 
   /**
    *
-   * @param {String} key 
+   * @param {String} key
    * deletes a key, and its corresponding data
    */
   deleteLog(key) {
@@ -286,11 +303,43 @@ class NodeBitcask {
 
   /**
    * 
-   * @param {Object} tmpKVStore 
+   * @param {{
+   *  dataDir: import("fs").PathLike,
+   *  kvSnapshotDir: import("fs").PathLike,
+   *  backupKVInterval: interval in ms,
+   *  compactionInterval: interval in ms
+   * }} configJSON 
+   */
+  configure(configJSON) {
+    if (!configJSON || typeof configJSON != "object") {
+      return false;
+    }
+    if (configJSON.dataDir) {
+      this.dataDir = configJSON.dataDir;
+    }
+    if (configJSON.kvSnapshotPath) {
+      this.kvSnapshotDir = configJSON.kvSnapshotPath;
+    }
+    if (configJSON.backupKVInterval) {
+      this.backupKVInterval = configJSON.backupKVInterval;
+    }
+    if (configJSON.compactionInterval) {
+      this.compactionInterval = configJSON.compactionInterval;
+    }
+  }
+
+  /**
+   *
+   * @param {Object} tmpKVStore
    * de-fragments the unreferenced data, and frees up disk.
    */
   compaction(tmpKVStore) {
     // either copy only those whose key exists, or delete the existing ones?
+    if (this.isCompactionInProgress || this.unreferencedBytesCount < 100) {
+      return;
+    } else {
+      this.isCompactionInProgress = true;
+    }
     if (!tmpKVStore) {
       this.isCompactionInProgress = false;
       return false;
@@ -302,6 +351,7 @@ class NodeBitcask {
       (err) => {
         if (err) {
           console.error(err);
+          this.isCompactionInProgress = false;
           return false;
         }
         try {
@@ -322,11 +372,9 @@ class NodeBitcask {
                   if (!content) {
                     throw Error("cannot read ", key);
                   }
-                  console.log("Wrote, ", content);
                   writerStream.write(content);
                   tmpKVStore[key].address = tmpSeek;
                   tmpSeek += tmpKVStore[key].totalBytes;
-                  tmpKVStore[key].shed = true;
                 }
               );
             }
@@ -351,10 +399,12 @@ class NodeBitcask {
                 }
               }
             );
+            this.isCompactionInProgress = false;
             return false;
           });
         } catch (error) {
-          console.log(error);
+          console.error(error);
+          this.isCompactionInProgress = false;
           return false;
         }
       }

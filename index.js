@@ -65,5 +65,10 @@ setTimeout(() => {
 exports.get = myNodeBitcask.get;
 exports.log = myNodeBitcask.log;
 exports.put = myNodeBitcask.put;
-
+exports.putStream = myNodeBitcask.putStream;
+exports.getStream = myNodeBitcask.getStream;
+exports.exportDataSync = myNodeBitcask.exportDataSync;
+exports.importDataSync = myNodeBitcask.importDataSync;
+exports.deleteLog = myNodeBitcask.deleteLog;
+exports.configure = myNodeBitcask.configure;
 

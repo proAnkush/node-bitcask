@@ -198,3 +198,7 @@ exports.getStoredContent = (filePath, position, length, cb) => {
     });
   });
 };
+
+exports.customUpdatingInterval = (fn, to) => {
+  setTimeout(fn, to);
+};
