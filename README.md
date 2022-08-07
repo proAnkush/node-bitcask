@@ -39,7 +39,7 @@ Data can be simply stored with:
 put(key, data)
 ```
 `key` is unique entity String that can be used to refer back to the  `data`. Put returns void, and synchronously stores the data.<br>
-**Note:** for large data (>100mb) use [putStream](#put-stream)
+**Note:** for large data (>100mb) use [putStream](#Inserting-large-data-with-Stream)
 
 ### **Accessing data**
 To get back your data use:
@@ -47,7 +47,7 @@ To get back your data use:
 get(key, callback)
 ```
 `get` synchronously find `key` referenced data and on success, provides the data to given callback. In case no data is found (maybe due to deleted key, incomplete storage, power-outage, bugs etc) `callback` will be invoked with `null` argument.<br>
-**Note:** for large data (>100mb) use [getStream](#get-stream)
+**Note:** for large data (>100mb) use [getStream](#Accessing-data-through-Stream)
 
 ### **Exporting the database**
 To export the database essential files
