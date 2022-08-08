@@ -118,12 +118,20 @@ exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
 exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
   // reading kv snapshot need to be synchronous
   // also recover seek
-  let kvBuf = fs.readFileSync(kvSnapshotDir).toString();
+  let kvBuf;
+  let seek = 0;
+  try {
+    kvBuf = fs.readFileSync(kvSnapshotDir).toString();
+    seek = this.calculateSeek(logFileDir) || 0;
+  } catch (error) {
+    // console.log(kvSnapshotDir, logFileDir);
+    fs.writeFileSync(kvSnapshotDir, "");
+    fs.writeFileSync(logFileDir, "");
+  }
   let kvStore = {};
-  if (kvBuf.length != 0) {
+  if (kvBuf && kvBuf.length != 0) {
     kvStore = JSON.parse(kvBuf) || {};
   }
-  let seek = this.calculateSeek(logFileDir) || 0;
   return [seek, kvStore];
 };
 
@@ -144,7 +152,7 @@ exports.processTombstones = (tombstones, logFilePath) => {
             tombstone.start,
             (err, written, buffer) => {
               if (err) {
-                console.log(fd, written, buffer, err);
+                // console.log(fd, written, buffer, err);
                 throw err;
               }
             }
@@ -158,7 +166,7 @@ exports.processTombstones = (tombstones, logFilePath) => {
 };
 
 exports.getStoredContent = (filePath, position, length, cb) => {
-  console.log(filePath, position, length, cb);
+  // console.log(filePath, position, length, cb);
   // read to buffer
   let readToBuffer = Buffer.alloc(length);
 
