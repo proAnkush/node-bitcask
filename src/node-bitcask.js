@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { writer } = require("repl");
 
 const constants = require("../constants.json");
 
@@ -44,21 +45,8 @@ class NodeBitcask {
     } catch {
       // error because dir exists
     }
-    // setInterval(() => {
-    //   utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
-    // }, constants.backupKVInterval);
-    // setInterval(() => {
-    //   if (this.#isCompactionInProgress || this.#unreferencedBytesCount < 100) {
-    //     return;
-    //   } else {
-    //     this.#isCompactionInProgress = true;
-    //     this.#isCompactionInProgress = this.compaction(
-    //       JSON.parse(JSON.stringify(this.#kvStore))
-    //     );
-    //   }
-    // }, constants.compactionInterval);
     this.#compactionSetInterval = setTimeout(() => {
-      this.compaction(JSON.parse(JSON.stringify(this.#kvStore)));
+      this.#compaction(JSON.parse(JSON.stringify(this.#kvStore)));
     }, this.#compactionInterval);
   }
 
@@ -75,17 +63,6 @@ class NodeBitcask {
     }
     let address = this.#kvStore[key].address;
     let totalBytes = this.#kvStore[key].totalBytes;
-    if (totalBytes > 1000000 && totalBytes <= 1000000) {
-      console.warn(
-        "data is around 1 Mb, prefer to use getStream(key, cb) for big data"
-      );
-    }
-    if (totalBytes > 1000000 * 100) {
-      console.error(
-        "data is bigger than 100Mb, please use getStream(key, cb), aborting"
-      );
-      return;
-    }
     utils.getStoredContent(
       path.join(this.#dataDir, this.#logfilename),
       address,
@@ -96,24 +73,37 @@ class NodeBitcask {
           console.log("No data");
         } else {
           try {
+            if (!utils.checkHash(this.#kvStore[key].checkSum, data)) {
+              cb(null);
+              return;
+            }
             let parsedJSON = JSON.parse(
               data.substr(String(key).length + 1, totalBytes)
             );
             if (parsedJSON && parsedJSON.bin) {
               cb(parsedJSON.bin);
+              return;
             } else {
               console.log("Something went wrong");
+              cb(null);
+              return;
             }
           } catch (error) {
             if (error) {
               console.log(error);
-              cb(
-                data.substr(
-                  String(key).length + 1 + constants.messagePaddingLLength,
-                  totalBytes -
-                    (String(key).length + constants.messagePaddingRLength)
-                )
-              );
+              if (!utils.checkHash(this.#kvStore[key].checkSum, data)) {
+                cb(null);
+                return;
+              }
+              if (data) {
+                cb(
+                  data.substr(
+                    String(key).length + 1 + constants.messagePaddingLLength,
+                    totalBytes -
+                      (String(key).length + constants.messagePaddingRLength)
+                  )
+                );
+              }
             }
           }
         }
@@ -143,14 +133,20 @@ class NodeBitcask {
       if (this.#kvStore && this.#kvStore[key]) {
         this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
       }
+      let messageHash = utils.getHash(data);
       this.#kvStore[key] = {
-        address: this.#seek,
+        checkSum: messageHash,
         totalBytes:
           String(key).length + constants.keySeparatorLength + message.length,
-        checksum: null,
+        address: this.#seek,
       };
+      // this.#kvStore[key].checkSum = messageHash;
+      // this.#kvStore[key].address = this.#seek;
+      // this.#kvStore[key].totalBytes =
+      //   String(key).length + constants.keySeparatorLength + message.length;
       this.#seek +=
         message.length + constants.keySeparatorLength + String(key).length;
+      console.log(this.#kvStore);
       fs.appendFileSync(path.join(this.#dataDir, this.#logfilename), data);
 
       // store as plain text
@@ -176,80 +172,6 @@ class NodeBitcask {
   }
   getLog(key, cb) {
     return this.get(key, cb);
-  }
-
-  /**
-   *
-   * @param {String} key
-   * @param {ReadableStream} messageStream
-   * `messageStream` will be used to write the data corresponding to the `key`
-   */
-  putStream(key, messageStream) {
-    // get chunks from stream, and put them to file, increment totalbytes and write data in contiguous sequence
-    // write keyName, json padding , content and then json end padding
-    let isKeyValid = utils.validateKey(key, this.#kvStore);
-    let fw = fs.createWriteStream(path.join(this.#dataDir, this.#logfilename), {
-      flags: "a",
-    });
-    this.#kvStore[key] = {
-      address: this.#seek,
-      checksum: null,
-    };
-    let len = 0;
-    let startPadding = `,{"bin":"`;
-    let endPadding = `"}`;
-    let chunkCount = 0;
-    fw.on("open", () => {
-      fw.write(key + startPadding);
-      len += String(key).length;
-      len += startPadding.length;
-      messageStream.on("data", (chunk) => {
-        chunkCount++;
-        len += decodeURIComponent(chunk.toString()).length;
-        fw.write(decodeURIComponent(chunk.toString()));
-      });
-      messageStream.on("close", (err) => {
-        fw.write(endPadding);
-        len += endPadding.length;
-        this.#seek += len;
-        this.#kvStore[key].totalBytes = len;
-        // console.log(len, startPadding, endPadding, messageStream);
-      });
-    });
-  }
-
-  /**
-   *
-   * @param {String} key
-   * @param {function} cb
-   * finds data for given `key`, which will then be passed down to `cb` as a `ReadStream` object.
-   */
-  getStream(key, cb) {
-    // if total bytes is BIG, then do cb with stream of data
-    utils.validateKey(key, this.#kvStore);
-    if (this.#kvStore[key] == undefined) {
-      return null;
-    }
-    let address = this.#kvStore[key].address;
-    let totalBytes = this.#kvStore[key].totalBytes;
-    if (totalBytes < 1000000) {
-      console.warn(
-        "data is less than 1 Mb, prefer to use get(key, cb) for small data"
-      );
-    }
-    let start =
-      address +
-      String(key).length +
-      constants.keySeparatorLength +
-      constants.messagePaddingLLength;
-    let end = address + totalBytes - constants.messagePaddingRLength;
-    let fr = fs.createReadStream(path.join(this.#dataDir, this.#logfilename), {
-      start: start,
-      end: end - 1,
-    });
-    fr.on("open", () => {
-      cb(fr);
-    });
   }
 
   getSync() {
@@ -333,16 +255,16 @@ class NodeBitcask {
     }
     if (configJSON.backupKVInterval) {
       this.#backupKVInterval = configJSON.backupKVInterval;
-      clearInterval(this.#backupKVSetInterval)
+      clearInterval(this.#backupKVSetInterval);
       this.#backupKVInterval = setInterval(() => {
         utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
       }, this.#backupKVInterval);
     }
     if (configJSON.compactionInterval) {
       this.#compactionInterval = configJSON.compactionInterval;
-      clearInterval(this.#compactionSetInterval)
+      clearInterval(this.#compactionSetInterval);
       this.#compactionSetInterval = setTimeout(() => {
-        this.compaction(JSON.parse(JSON.stringify(this.#kvStore)));
+        this.#compaction(JSON.parse(JSON.stringify(this.#kvStore)));
       }, this.#compactionInterval);
     }
   }
@@ -354,80 +276,76 @@ class NodeBitcask {
    */
   #compaction(tmpKVStore) {
     // either copy only those whose key exists, or delete the existing ones?
-    if (this.#isCompactionInProgress || this.#unreferencedBytesCount < 100) {
-      return;
-    } else {
-      this.#isCompactionInProgress = true;
-    }
+    // if (this.#isCompactionInProgress || this.#unreferencedBytesCount < 100) {
+    //   return;
+    // } else {
+    //   this.#isCompactionInProgress = true;
+    // }
     if (!tmpKVStore) {
       this.#isCompactionInProgress = false;
       return false;
     }
+
+    let tmpLogPath = path.join(__dirname, "..", "tmpLog.bin");
     // create tmp file
-    fs.writeFile(
-      path.join(__dirname, "..", "data", "tmpLog.bin"),
-      "",
-      (err) => {
-        if (err) {
-          console.error(err);
-          this.#isCompactionInProgress = false;
-          return false;
-        }
-        try {
-          let writerStream = fs.createWriteStream(
-            path.join(__dirname, "..", "data", "tmpLog.bin")
-          );
-          let tmpSeek = 0;
+    fs.writeFile(tmpLogPath, "", (err) => {
+      if (err) {
+        console.error(err);
+        this.#isCompactionInProgress = false;
+        return false;
+      }
+      try {
+        let writerStream = fs.createWriteStream(tmpLogPath);
+        let tmpSeek = 0;
 
-          for (let key of Object.keys(tmpKVStore)) {
-            if (tmpKVStore[key].deleted == true) {
-              tmpKVStore[key] = undefined;
-            } else {
-              utils.getStoredContent(
-                path.join(this.#dataDir, this.#logfilename),
-                tmpKVStore[key].address,
-                tmpKVStore[key].totalBytes,
-                (content) => {
-                  if (!content) {
-                    throw Error("cannot read ", key);
+        for (let key of Object.keys(tmpKVStore)) {
+          if (tmpKVStore[key].deleted == true) {
+            tmpKVStore[key] = undefined;
+          } else {
+            utils.getStoredContent(
+              path.join(this.#dataDir, this.#logfilename),
+              tmpKVStore[key].address,
+              tmpKVStore[key].totalBytes,
+              (content) => {
+                if (!content) {
+                  throw Error("cannot read ", key);
+                }
+                writerStream.write(content, (err) => {
+                  if (err) {
+                    console.error(err);
                   }
-                  writerStream.write(content);
-                  tmpKVStore[key].address = tmpSeek;
-                  tmpSeek += tmpKVStore[key].totalBytes;
-                }
-              );
-            }
-          }
-          writerStream.on("close", () => {
-            // all the writing has finished,
-            this.#seek = tmpSeek;
-            this.#kvStore = tmpKVStore;
-            this.#unreferencedBytesCount = 0;
-
-            fs.copyFileSync(
-              path.join(
-                (__dirname, "..", "data", "tmpLog.bin"),
-                path.join(path.join(this.#dataDir, this.#logfilename))
-              )
-            );
-            fs.unlink(
-              path.join(__dirname, "..", "data", "tmpLog.bin"),
-              (err) => {
-                if (err) {
-                  console.error(err);
-                }
+                });
+                tmpKVStore[key].address = tmpSeek;
+                tmpSeek += tmpKVStore[key].totalBytes;
               }
             );
-            this.#isCompactionInProgress = false;
-            return false;
+          }
+        }
+        writerStream.end();
+        writerStream.on("end", () => {
+          // all the writing has finished,
+          this.#seek = tmpSeek;
+          this.#kvStore = tmpKVStore;
+          this.#unreferencedBytesCount = 0;
+          fs.copyFileSync(
+            tmpLogPath,
+            path.join(this.#dataDir, this.#logfilename)
+          );
+
+          fs.unlink(tmpLogPath, (err) => {
+            if (err) {
+              console.error(err);
+            }
           });
-        } catch (error) {
-          console.error(error);
           this.#isCompactionInProgress = false;
           return false;
-        }
+        });
+      } catch (error) {
+        console.error(error);
+        this.#isCompactionInProgress = false;
+        return false;
       }
-    );
+    });
   }
 }
 

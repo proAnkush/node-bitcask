@@ -14,9 +14,25 @@ exports.handleErrorDefault = (err) => {
   return false;
 };
 
+exports.getHash = (key) => {
+  if (!key) {
+    console.error("Please provide a string for genrating hash");
+    return null;
+  }
+  const crypto = require("crypto");
+  let hash = crypto.createHash("md5").update(key).digest("hex");
+  return hash;
+};
+
+exports.checkHash = (hash, data) => {
+  const crypto = require("crypto");
+  if (!hash || !data) return false;
+  return hash === crypto.createHash("md5").update(data).digest("hex");
+};
+
 /**
- * 
- * @param {String} message 
+ *
+ * @param {String} message
  * validates a `message` string, returns `true` if message is valid
  */
 exports.validateMessage = (message) => {
@@ -33,9 +49,9 @@ exports.validateMessage = (message) => {
 };
 
 /**
- * 
- * @param {String} key 
- * @param {Object} kvStore 
+ *
+ * @param {String} key
+ * @param {Object} kvStore
  * validates `key` and also checks if `key` is in `kvstore`, returns `true` if valid
  */
 exports.validateKey = (key, kvStore) => {
@@ -54,8 +70,8 @@ exports.validateKey = (key, kvStore) => {
 };
 
 /**
- * 
- * @param {import("fs").PathLike} logFileDir 
+ *
+ * @param {import("fs").PathLike} logFileDir
  * calculates where the `seek` should be placed for writing the content at the specific positions
  */
 exports.calculateSeek = (logFileDir) => {
@@ -66,9 +82,9 @@ exports.calculateSeek = (logFileDir) => {
 };
 
 /**
- * 
+ *
  * @param {PathLike} pathToFile
- * removes the entire content of the file, without deleting the file. 
+ * removes the entire content of the file, without deleting the file.
  */
 exports.empty = (pathToFile) => {
   fs.open(pathToFile, "w", (err, fd) => {
@@ -87,19 +103,22 @@ exports.empty = (pathToFile) => {
 };
 
 /**
- * 
+ *
  * @param {PathLike} kvSnapshotDir
- * @param {Object} kvStore 
+ * @param {Object} kvStore
  * stores the key-value store to `kvSnapshotDir` for persisting the database, since kvStore is on memory, power cut will result in data loss, hence this is essential
  */
 exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
   fs.promises
     .open(kvSnapshotDir, "w")
     .then((fd) => {
-      return fd.write(Buffer.from(JSON.stringify(kvStore)));
+      return fd.write(Buffer.from(JSON.stringify(kvStore))).then(() => {
+        return fd;
+      });
     })
-    .then((result) => {
+    .then((fd) => {
       // console.log(result);
+      fd.close();
     })
     .catch((err) => {
       if (err) {
