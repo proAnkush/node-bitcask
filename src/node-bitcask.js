@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const { writer } = require("repl");
 
 const constants = require("../constants.json");
 
@@ -59,15 +58,18 @@ class NodeBitcask {
   get(key, cb) {
     utils.validateKey(key, this.#kvStore);
     if (this.#kvStore[key] == undefined) {
+      cb(null);
       return null;
     }
     let address = this.#kvStore[key].address;
     let totalBytes = this.#kvStore[key].totalBytes;
+    // console.log(this.#kvStore);
     utils.getStoredContent(
       path.join(this.#dataDir, this.#logfilename),
       address,
       totalBytes,
       (data) => {
+        // console.log(data);
         if (!data) {
           cb(null);
           console.log("No data");
@@ -77,33 +79,21 @@ class NodeBitcask {
               cb(null);
               return;
             }
-            let parsedJSON = JSON.parse(
-              data.substr(String(key).length + 1, totalBytes)
-            );
-            if (parsedJSON && parsedJSON.bin) {
-              cb(parsedJSON.bin);
-              return;
-            } else {
-              console.log("Something went wrong");
-              cb(null);
-              return;
+            if (data) {
+              cb(
+                data.substring(
+                  String(key).length +
+                    constants.keySeparatorLength +
+                    constants.messagePaddingLLength,
+                  totalBytes - 1
+                )
+              );
             }
           } catch (error) {
             if (error) {
               console.log(error);
-              if (!utils.checkHash(this.#kvStore[key].checkSum, data)) {
-                cb(null);
-                return;
-              }
-              if (data) {
-                cb(
-                  data.substr(
-                    String(key).length + 1 + constants.messagePaddingLLength,
-                    totalBytes -
-                      (String(key).length + constants.messagePaddingRLength)
-                  )
-                );
-              }
+              cb(null);
+              return;
             }
           }
         }
@@ -118,7 +108,6 @@ class NodeBitcask {
    * log stores the `key` to a json object and the `message` object out of memory for efficient speed and memory optimisation
    */
   log(key, message) {
-    /* stores the log */
     if (!this.#kvStore) {
       this.#kvStore = {};
     }
@@ -127,29 +116,19 @@ class NodeBitcask {
     }
     let isMessageValid = utils.validateMessage(message);
     let isKeyValid = utils.validateKey(key, this.#kvStore);
-    message = JSON.stringify({ bin: message });
     if (isKeyValid && isMessageValid) {
-      let data = key + "," + message;
+      let data = key + "," + JSON.stringify({ bin: message });
       if (this.#kvStore && this.#kvStore[key]) {
         this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
       }
       let messageHash = utils.getHash(data);
       this.#kvStore[key] = {
         checkSum: messageHash,
-        totalBytes:
-          String(key).length + constants.keySeparatorLength + message.length,
+        totalBytes: data.length,
         address: this.#seek,
       };
-      // this.#kvStore[key].checkSum = messageHash;
-      // this.#kvStore[key].address = this.#seek;
-      // this.#kvStore[key].totalBytes =
-      //   String(key).length + constants.keySeparatorLength + message.length;
-      this.#seek +=
-        message.length + constants.keySeparatorLength + String(key).length;
-      console.log(this.#kvStore);
+      this.#seek += data.length;
       fs.appendFileSync(path.join(this.#dataDir, this.#logfilename), data);
-
-      // store as plain text
     }
   }
 
