@@ -75,7 +75,10 @@ class NodeBitcask {
           console.log("No data");
         } else {
           try {
-            if (!utils.checkHash(this.#kvStore[key].checkSum, data)) {
+            if (
+              this.#kvStore[key] &&
+              !utils.checkHash(this.#kvStore[key].checkSum, data)
+            ) {
               cb(null);
               return;
             }
@@ -84,8 +87,8 @@ class NodeBitcask {
                 data.substring(
                   String(key).length +
                     constants.keySeparatorLength +
-                    constants.messagePaddingLLength,
-                  totalBytes - 1
+                    constants.messagePaddingLLength+1,
+                  totalBytes - 2
                 )
               );
             }
@@ -274,34 +277,38 @@ class NodeBitcask {
         return false;
       }
       try {
-        let writerStream = fs.createWriteStream(tmpLogPath);
+        let writerStream = fs.createWriteStream(tmpLogPath, {start: 0, flags: "a"});
         let tmpSeek = 0;
-
-        for (let key of Object.keys(tmpKVStore)) {
-          if (tmpKVStore[key].deleted == true) {
-            tmpKVStore[key] = undefined;
-          } else {
-            utils.getStoredContent(
-              path.join(this.#dataDir, this.#logfilename),
-              tmpKVStore[key].address,
-              tmpKVStore[key].totalBytes,
-              (content) => {
-                if (!content) {
-                  throw Error("cannot read ", key);
-                }
-                writerStream.write(content, (err) => {
-                  if (err) {
-                    console.error(err);
+        writerStream.once("ready", () => {
+          for (let key of Object.keys(tmpKVStore)) {
+            if (tmpKVStore[key].deleted == true) {
+              tmpKVStore[key] = undefined;
+            } else {
+              utils.getStoredContent(
+                path.join(this.#dataDir, this.#logfilename),
+                tmpKVStore[key].address,
+                tmpKVStore[key].totalBytes,
+                (content) => {
+                  if (!content) {
+                    throw Error("cannot read ", key);
                   }
-                });
-                tmpKVStore[key].address = tmpSeek;
-                tmpSeek += tmpKVStore[key].totalBytes;
-              }
-            );
+                  writerStream.write(content, (err) => {
+                    if (err) {
+                      console.error(err);
+                    }
+                  });
+                  tmpKVStore[key].address = tmpSeek;
+                  tmpSeek += tmpKVStore[key].totalBytes;
+                }
+              );
+            }
           }
-        }
-        writerStream.end();
-        writerStream.on("end", () => {
+          console.log(writerStream);
+        });
+        writerStream.once("drain", () => writerStream.close());
+        // writerStream.end();
+        writerStream.on("close", () => {
+          console.log("end");
           // all the writing has finished,
           this.#seek = tmpSeek;
           this.#kvStore = tmpKVStore;

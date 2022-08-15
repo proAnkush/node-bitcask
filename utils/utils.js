@@ -94,7 +94,7 @@ exports.empty = (pathToFile) => {
     try {
       fs.write(fd, "", (err) => {
         if (err) {
-          console.log(err);
+          console.error(err);
           throw err;
         }
       });
@@ -128,10 +128,10 @@ exports.createKVSnapshot = (kvSnapshotDir, kvStore) => {
 };
 
 /**
- * 
+ *
  * @param {} kvSnapshotDir
- * @param {} logFileDir 
- * 
+ * @param {} logFileDir
+ *
  * reconstructs `kvstore` from the `kvSnapshotDir` on-disk snapshot .
  */
 exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
@@ -223,7 +223,7 @@ exports.getStoredContent = (filePath, position, length, cb) => {
         }
       }
     });
-  });
+  }, 1000);
 };
 
 exports.customUpdatingInterval = (fn, to) => {

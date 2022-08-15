@@ -1,15 +1,7 @@
 "use strict";
 const NodeBitcask = require("./src/node-bitcask");
 const myNodeBitcask = new NodeBitcask();
-myNodeBitcask.log("Test", "BIG VALUE");
-myNodeBitcask.get("Test", console.log);
-myNodeBitcask.log("horse", "not a zebra");
-myNodeBitcask.log("duck", "Moneh moneh moneh moneh");
-myNodeBitcask.log("zebra", "zebra crossing new forza horizon");
-myNodeBitcask.get("horse", console.log);
-myNodeBitcask.get("duck", console.log);
-myNodeBitcask.get("Test", console.log);
-myNodeBitcask.get("zebra", console.log);
+
 
 module.exports = myNodeBitcask;
 
