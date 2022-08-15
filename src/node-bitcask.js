@@ -53,64 +53,155 @@ class NodeBitcask {
    *
    * @param {String} key
    * @param {function} cb
-   * finds the data corresponding to the `key` and passes down the data to `cb`
+   * asynchronously finds the data corresponding to the `key` and passes down the data to `cb`
    */
   get(key, cb) {
     utils.validateKey(key, this.#kvStore);
     if (this.#kvStore[key] == undefined) {
       cb(null);
+      console.log("key doesnt exist");
       return null;
     }
     let address = this.#kvStore[key].address;
     let totalBytes = this.#kvStore[key].totalBytes;
     // console.log(this.#kvStore);
-    utils.getStoredContent(
-      path.join(this.#dataDir, this.#logfilename),
-      address,
-      totalBytes,
-      (data) => {
-        // console.log(data);
-        if (!data) {
-          cb(null);
-          console.log("No data");
-        } else {
-          try {
-            if (
-              this.#kvStore[key] &&
-              !utils.checkHash(this.#kvStore[key].checkSum, data)
-            ) {
-              cb(null);
-              return;
-            }
-            if (data) {
-              cb(
-                data.substring(
-                  String(key).length +
-                    constants.keySeparatorLength +
-                    constants.messagePaddingLLength+1,
-                  totalBytes - 2
-                )
-              );
-            }
-          } catch (error) {
-            if (error) {
-              console.log(error);
-              cb(null);
-              return;
+    // setTimeout(() => {
+      utils.getStoredContent(
+        path.join(this.#dataDir, this.#logfilename),
+        address,
+        totalBytes,
+        (data) => {
+          // console.log(data);
+          if (!data) {
+            cb(null);
+            console.log("No data");
+          } else {
+            try {
+              if (
+                this.#kvStore[key] &&
+                !utils.checkHash(this.#kvStore[key].checkSum, data)
+              ) {
+                cb(null);
+                return;
+              }
+              if (data) {
+                cb(
+                  data.substring(
+                    String(key).length +
+                      constants.keySeparatorLength +
+                      constants.messagePaddingLLength +
+                      1,
+                    totalBytes - 2
+                  )
+                );
+              }
+            } catch (error) {
+              if (error) {
+                console.log(error);
+                cb(null);
+                return;
+              }
             }
           }
         }
-      }
-    );
+      );
+    // }, 0);
   }
 
   /**
    *
+   * @param {String} key
+   * Synchronously finds and returns data corresponding to given key
+   */
+  getSync(key) {
+    utils.validateKey(key, this.#kvStore);
+    if (this.#kvStore[key] == undefined) {
+      return null;
+    }
+    let address = this.#kvStore[key].address;
+    let totalBytes = this.#kvStore[key].totalBytes;
+    let buffer = Buffer.alloc(totalBytes);
+    try {
+      let fd = fs.openSync(path.join(this.#dataDir, this.#logfilename), "r");
+      fs.readSync(fd, buffer, { length: totalBytes, position: address });
+    } catch (error) {
+      if (error) {
+        console.error(error);
+        throw error;
+      }
+    }
+    let data = buffer.toString("utf-8");
+    if (
+      this.#kvStore[key] &&
+      !utils.checkHash(this.#kvStore[key].checkSum, data)
+    ) {
+      return null;
+    }
+    if (data) {
+      return data.substring(
+        String(key).length +
+          constants.keySeparatorLength +
+          constants.messagePaddingLLength +
+          1,
+        totalBytes - 2
+      );
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * @param {String} key
+   * @param {String} message
+   * @param {function(Error | undefined)} cb
+   *  log asynchronously stores the `key` to a json object and the `message` object out of memory for efficient speed and memory optimisation
+   */
+  log(key, message, cb) {
+    if (!this.#kvStore) {
+      this.#kvStore = {};
+    }
+    if (!parseInt(this.#seek)) {
+      this.#seek = 0;
+    }
+    let isMessageValid = utils.validateMessage(message);
+    let isKeyValid = utils.validateKey(key, this.#kvStore);
+    if (isKeyValid && isMessageValid) {
+      let data = key + "," + JSON.stringify({ bin: message });
+      let messageHash = utils.getHash(data);
+      if (this.#kvStore && this.#kvStore[key]) {
+        this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
+      }
+      this.#kvStore[key] = {
+        checkSum: messageHash,
+        totalBytes: data.length,
+        address: this.#seek,
+      };
+      // console.log(this.#seek, "seek");
+      this.#seek += data.length;
+      setTimeout(() => {
+        let ws = fs.createWriteStream(
+          path.join(this.#dataDir, this.#logfilename),
+          { flags: "a", encoding: "utf-8" }
+        );
+        ws.write(data, (err) => {
+          if (err) {
+            cb(err);
+          }
+        });
+        ws.on("drain", () => {
+          ws.close();
+          cb(null);
+        });
+      }, 0);
+    }
+  }
+
+  /**
    * @param {[String]} key
    * @param {[String]} message
-   * log stores the `key` to a json object and the `message` object out of memory for efficient speed and memory optimisation
+   *  Synchronously stores the key value data.
    */
-  log(key, message) {
+  logSync(key, message) {
     if (!this.#kvStore) {
       this.#kvStore = {};
     }
@@ -144,23 +235,35 @@ class NodeBitcask {
       utils.empty(path.join(this.#dataDir, this.#logfilename));
       utils.empty(this.#kvSnapshotDir);
       this.#kvStore = {};
-      this.#seek = {};
+      this.#seek = 0;
+      this.#unreferencedBytesCount = 0;
+      clearInterval(this.#compactionSetInterval);
+      clearInterval(this.#backupKVSetInterval);
+
     } catch (error) {
       if (error) throw error;
     }
   }
-  put(key, message) {
-    return this.log(key, message);
-  }
-  getLog(key, cb) {
-    return this.get(key, cb);
+
+  /**
+   *
+   * @param {String} key
+   * @param {String} message
+   * @param {function(Error | null)} cb
+   * put asynchronously stores the `key` to a json object and the `message` object out of memory for efficient speed and memory optimisation
+   */
+  put(key, message, cb) {
+    return this.log(key, message, cb);
   }
 
-  getSync() {
-    console.log("not yet defined");
-  }
-  putSync() {
-    console.log("not yet defined");
+  /**
+   *
+   * @param {String} key
+   * @param {String} message
+   * Synchronously stores the key value data.
+   */
+  putSync(key, message) {
+    return this.logSync(key, message);
   }
 
   /**
@@ -281,7 +384,7 @@ class NodeBitcask {
       let writerStream = fs.createWriteStream(tmpLogPath, {
         start: 0,
         flags: "a",
-        highWaterMark: 1
+        highWaterMark: 1,
       });
       let tmpSeek = 0;
       this.#unreferencedBytesCount = 0;
