@@ -30,17 +30,16 @@ nb.get("zebra");
 - [Exporting the database](#Exporting-the-database)
 - [Importing previous database](#Importing-previous-database)
 - [Deleting a log](#Deleting-a-log)
-- [Inserting large data with Stream](#Inserting-large-data-with-Stream)
-- [Accessing data through Stream](#Accessing-data-through-Stream)
 - [Deleting the database](#Deleting-the-database)
 <br><br>
 ### **Inserting data**
 Data can be simply stored with:
 ```js
-put(key, data)
+put(key, data, callback)
 ```
-`key` is unique entity String that can be used to refer back to the  `data`. Put returns void, and synchronously stores the data.<br>
-**Note:** for large data (>100mb) use [putStream](#Inserting-large-data-with-Stream)
+`key` is unique entity String that can be used to refer back to the  `data`. Put returns void, and asynchronously stores the data.<br>
+
+**Note:** `putSync(key, data)` is also available for synchronous *put* operation.
 <br><br>
 
 ### **Accessing data**
@@ -48,8 +47,8 @@ To get back your data use:
 ```js
 get(key, callback)
 ```
-`get` synchronously find `key` referenced data and on success, provides the data to given callback. In case no data is found (maybe due to deleted key, incomplete storage, power-outage, bugs etc) `callback` will be invoked with `null` argument.<br>
-**Note:** for large data (>100mb) use [getStream](#Accessing-data-through-Stream)<br><br>
+`get` asynchronously find `key` referenced data and on success, provides the data to given callback. In case no data is found (maybe due to deleted key, incomplete storage, power-outage, bugs etc) `callback` will be invoked with `null` argument.<br>
+**Note:** `getSync(key)` is also available for synchronous *get* operation.
 
 ### **Exporting the database**
 To export the database essential files
@@ -74,25 +73,9 @@ importDataSync(oldLogFileDir, oldKVFileDir)
 deleteLog(key)
 ```
 Deletes the key. <br>
-*!note* after deletion, the data may still exist in the logfile for a small duration. 
+**Note:** after deletion, the data may still exist in the logfile for a small duration. 
 <!-- actually the key still exists in the kv store but it is marked as a tombstone. The data is technically deleted when the compaction process starts. The compaction process reduces the size of logfile. -->
 <br>
-
-### **Inserting large data with Stream**
-For storing large data use:
-```js
-putStream(key:String, messageStream:ReadableStream)
-```
-`key` as usual is the key which will be used for referencing back to the data.<br>
-`messageStream` is a ReadableStream, on which `putStream` will listen for 'data' and 'close' events.
-    **Note!** please make sure `messageStream` emits close event.<br><br>
-
-### **Accessing data through Stream**
-Similarly for accessing large data, Streams can be used.
-```js
-getStream(key, callback)
-```
-`getStream` passes a `ReadableStream` to callback, which emits 'data' and 'close' events. Each chunk of data in this ReadableStream is of 16kb or less.<br><br>
 
 ### **Deleting the database**
 To delete all the data and the KV store use:
@@ -114,14 +97,21 @@ nb.configure({
 ```
 You can omit any key that you dont want to configure, and its value will stay to default.
 
+## Some special notes
+---
+- Old time fans will remember there used to be Stream api for reading and writing large data with putStream and getStream. Sadly these features had to go, as hashing this large stream of data wouldn't be possible.
+
+- *async fs* operations are handled by thread pool in nodejs. So performance of these operations will depend on the count of CPU cores in the system, and their respective speed. i.e. A single logical cpu core can do one fs operation at a time, so 4c/8t cpu will handle 8 fs operations concurrently.[^4]
+
 ## References
 ---
 1. Bitcask - Riak Docs. [^1]
-2. Designing Data Intensive Applications by Martin Kleppmann. [^2]
+2. Designing Data Intensive Applications by Martin Kleppmann.(came across bitcask reading this one, great book) [^2]
 3. Bitcask Paper. [^3]
 
 
 [^1]: https://docs.riak.com/riak/kv/2.2.3/setup/planning/backend/bitcask/index.html
 [^2]: https://www.amazon.in/Designing-Data-Intensive-Applications-Reliable-Maintainable-ebook/dp/B06XPJML5D
 [^3]: https://riak.com/assets/bitcask-intro.pdf
+[^4]: https://www.youtube.com/watch?v=zphcsoSJMvM
 
