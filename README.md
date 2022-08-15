@@ -5,7 +5,13 @@
 >"Bitcask[^1] is an Erlang application that provides an API for storing and retrieving key/value data using log-structured hash tables that provide very fast access. The design of Bitcask was inspired, in part, by log-structured filesystems and log file merging." - riak docs
  
 
-**node-bitcask** is a NodeJS implementation of the proposed storage system, without depending on third party node_modules.
+**node-bitcask** is a NodeJS implementation of the proposed storage system. It is a log structured hash table.
+
+Log structured: Data structure that allows append operations only, to utilise the sequential speeds of traditional mechanical hard drives.
+
+Hash tables: In memory Key-Value pairs with O(1) read and write complexity.
+
+node-bitcask allows asynchronous and synchronous operations on such a log structured hash table, where values are md5 verified, to store and provide data accurately. It also features resilience to power outage, vertical scalability, space optimization by periodic compaction.
 
 ## Installation
 ---
@@ -102,6 +108,27 @@ You can omit any key that you dont want to configure, and its value will stay to
 - Old time fans will remember there used to be Stream api for reading and writing large data with putStream and getStream. Sadly these features had to go, as hashing this large stream of data wouldn't be possible.
 
 - *async fs* operations are handled by thread pool in nodejs. So performance of these operations will depend on the count of CPU cores in the system, and their respective speed. i.e. A single logical cpu core can do one fs operation at a time, so 4c/8t cpu will handle 8 fs operations concurrently.[^4]
+
+
+## Changelogs
+---
+Version 1.0.0-beta.2
+
+- Removed stream api.
+- Added md5 checksums (crypto module) for verifying the integrity of written data.
+- Replace setTimeout with setInterval for compaction.
+- Fixed `WriteStream` used internally for compaction would not emit *close* event, also replace listener from *close* to *drain* event.
+- Convert basic operations to asynchronous operations.
+- Added synchronous functions.
+- Added changelogs to README
+- Some more minor fixes.
+
+Version 1.0.0-beta.1
+- Fixed undefined instance variables of node-bitcask resulted in failure of most operations
+- Removed test operations from index.js which would get executed on importing node-bitcask.
+- Handled file doesn't exist.
+- Made internal variables and function private.
+- Removed most of the debug logs
 
 ## References
 ---
