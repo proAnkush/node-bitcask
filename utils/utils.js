@@ -1,9 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 
+const constants = require("../constants.json");
+
 /**
- * 
- * @param {Error} err 
+ *
+ * @param {Error} err
  * can be used as callback for promises
  */
 exports.handleErrorDefault = (err) => {
@@ -38,11 +40,11 @@ exports.checkHash = (hash, data) => {
 exports.validateMessage = (message) => {
   // return `false if invalid, and `true` if valid
   if (typeof message === "undefined") {
-    console.log("message argument is not optional");
+    console.error("message argument is not optional");
     return false;
   }
   if (typeof message !== "string") {
-    console.log(`message should be of type string, not ${typeof message}`);
+    console.error(`message should be of type string, not ${typeof message}`);
     return false;
   }
   return true;
@@ -60,7 +62,6 @@ exports.validateKey = (key, kvStore) => {
     return false;
   }
   if (typeof key !== "string") {
-    console.log("key should be of type string");
     return false;
   }
   if (kvStore && kvStore[key] && kvStore[key].deleted == true) {
@@ -154,39 +155,13 @@ exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
   return [seek, kvStore];
 };
 
-exports.processTombstones = (tombstones, logFilePath) => {
-  if (tombstones.length > 0) {
-    fs.open(logFilePath, "r+", (err, fd) => {
-      if (err) {
-        throw err;
-      }
-      try {
-        tombstones.forEach((tombstone) => {
-          let buffer = Buffer.from(Array(tombstone.length + 1).join("~"));
-          fs.write(
-            fd,
-            buffer,
-            0,
-            tombstone.length,
-            tombstone.start,
-            (err, written, buffer) => {
-              if (err) {
-                // console.log(fd, written, buffer, err);
-                throw err;
-              }
-            }
-          );
-        });
-      } catch (error) {
-        console.error(error);
-      }
-    });
-  }
-};
-
 exports.getStoredContent = (filePath, position, length, cb) => {
   // console.log(filePath, position, length, cb);
   // read to buffer
+
+  if (!filePath || !position || !length) {
+    cb(null);
+  }
   let readToBuffer = Buffer.alloc(length);
 
   // go to address in the file and start reading
@@ -211,7 +186,7 @@ exports.getStoredContent = (filePath, position, length, cb) => {
             }
             fs.close(fd, this.handleErrorDefault);
             // buffer.slice(String(key).length+1, address+totalBytes-1);
-            cb(decodeURIComponent(buffer.toString()));
+            cb(buffer.toString());
             // .substring((String(key).length)+1, address+totalBytes-1))
           }
         );
@@ -224,6 +199,74 @@ exports.getStoredContent = (filePath, position, length, cb) => {
       }
     });
   }, 1000);
+};
+exports.getStoredContentPromise = (filePath, position, length) => {
+  // console.log(filePath, position, length, cb);
+  // read to buffer
+  return new Promise((resolve, reject) => {
+    if (!filePath || !position || !length) {
+      reject(new Error("fp or pos or len is null"));
+    }
+    let readToBuffer = Buffer.alloc(length);
+
+    setTimeout(() => {
+      fs.open(filePath, "r", (err, fd) => {
+        if (err) {
+          throw err;
+        }
+        if (!fd) {
+          throw Error("invalid fd");
+        }
+        try {
+          fs.read(
+            fd,
+            readToBuffer,
+            0,
+            length,
+            position,
+            (err, bytesRead, buffer) => {
+              if (err) {
+                console.error(err);
+              }
+              fs.close(fd, this.handleErrorDefault);
+              // buffer.slice(String(key).length+1, address+totalBytes-1);
+              resolve(buffer.toString());
+              // .substring((String(key).length)+1, address+totalBytes-1))
+            }
+          );
+        } catch (error) {
+          if (error) {
+            console.error(error);
+            fs.close(fd, this.handleErrorDefault);
+            reject(error);
+          }
+        }
+      });
+    }, 1000);
+  });
+
+  // go to address in the file and start reading
+};
+
+exports.addKeyToKV = (kv, key, messageHash, dataLength, seek) => {
+  kv[key] = {
+    checkSum: messageHash,
+    totalBytes: dataLength,
+    address: seek,
+  };
+  seek += dataLength;
+  kv[constants.kvEmbeddedKey]["activeKeyCount"] += 1;
+  kv[constants.kvEmbeddedKey]["contentLength"] += dataLength;
+  kv[constants.kvEmbeddedKey]["seek"] += dataLength;
+};
+
+exports.getEmptyEmbedObject = () => {
+  return {
+    activeKeyCount: 0,
+    contentLength: 0,
+    seek: 0,
+    unreferencedBytesCount: 0,
+  };
 };
 
 exports.customUpdatingInterval = (fn, to) => {

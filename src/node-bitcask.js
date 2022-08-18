@@ -12,12 +12,12 @@ class NodeBitcask {
   #compactionInterval;
   #backupKVInterval;
   #kvStore;
-  #tombstones;
   #seek;
   #unreferencedBytesCount;
   #isCompactionInProgress;
   #backupKVSetInterval;
   #compactionSetInterval;
+  // #activeKeyCount;
   constructor() {
     // instance variables
     this.#dataDir = path.join(__dirname);
@@ -26,7 +26,6 @@ class NodeBitcask {
     this.#compactionInterval = constants.compactionInterval;
     this.#backupKVInterval = constants.backupKVInterval;
     this.#kvStore = {};
-    this.#tombstones = [];
     this.#seek = 0;
     this.#unreferencedBytesCount = 0;
     this.#isCompactionInProgress = false;
@@ -59,53 +58,45 @@ class NodeBitcask {
     utils.validateKey(key, this.#kvStore);
     if (this.#kvStore[key] == undefined) {
       cb(null);
-      console.log("key doesnt exist");
       return null;
+    }
+    if (this.#isCompactionInProgress) {
+      setTimeout(() => {
+        this.get(key, cb);
+      }, 5000);
+      return;
     }
     let address = this.#kvStore[key].address;
     let totalBytes = this.#kvStore[key].totalBytes;
-    // console.log(this.#kvStore);
-    // setTimeout(() => {
-      utils.getStoredContent(
-        path.join(this.#dataDir, this.#logfilename),
-        address,
-        totalBytes,
-        (data) => {
-          // console.log(data);
-          if (!data) {
-            cb(null);
-            console.log("No data");
-          } else {
-            try {
-              if (
-                this.#kvStore[key] &&
-                !utils.checkHash(this.#kvStore[key].checkSum, data)
-              ) {
-                cb(null);
-                return;
-              }
-              if (data) {
-                cb(
-                  data.substring(
-                    String(key).length +
-                      constants.keySeparatorLength +
-                      constants.messagePaddingLLength +
-                      1,
-                    totalBytes - 2
-                  )
-                );
-              }
-            } catch (error) {
-              if (error) {
-                console.log(error);
-                cb(null);
-                return;
-              }
-            }
-          }
+    setTimeout(async () => {
+      try {
+        let data = await utils.getStoredContentPromise(
+          path.join(this.#dataDir, this.#logfilename),
+          address,
+          totalBytes
+        );
+        if (
+          this.#kvStore[key] &&
+          !utils.checkHash(this.#kvStore[key].checkSum, data)
+        ) {
+          cb(null);
+          return;
         }
-      );
-    // }, 0);
+        if (data) {
+          cb(
+            data.substring(
+              String(key).length +
+                constants.keySeparatorLength +
+                constants.messagePaddingLLength +
+                1,
+              totalBytes - 2
+            )
+          );
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }, 100);
   }
 
   /**
@@ -127,7 +118,7 @@ class NodeBitcask {
     } catch (error) {
       if (error) {
         console.error(error);
-        throw error;
+        // throw error;
       }
     }
     let data = buffer.toString("utf-8");
@@ -163,20 +154,31 @@ class NodeBitcask {
     if (!parseInt(this.#seek)) {
       this.#seek = 0;
     }
+    if (!this.#kvStore[constants.kvEmbeddedKey]) {
+      this.#kvStore[constants.kvEmbeddedKey] = utils.getEmptyEmbedObject();
+    }
+    if (this.#isCompactionInProgress) {
+      setTimeout(() => {
+        this.log(key, message, cb);
+      }, 4000);
+      return;
+    }
     let isMessageValid = utils.validateMessage(message);
     let isKeyValid = utils.validateKey(key, this.#kvStore);
     if (isKeyValid && isMessageValid) {
       let data = key + "," + JSON.stringify({ bin: message });
       let messageHash = utils.getHash(data);
       if (this.#kvStore && this.#kvStore[key]) {
-        this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
+        this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] +=
+          this.#kvStore[key].totalBytes;
       }
-      this.#kvStore[key] = {
-        checkSum: messageHash,
-        totalBytes: data.length,
-        address: this.#seek,
-      };
-      // console.log(this.#seek, "seek");
+      utils.addKeyToKV(
+        this.#kvStore,
+        key,
+        messageHash,
+        data.length,
+        this.#seek
+      );
       this.#seek += data.length;
       setTimeout(() => {
         let ws = fs.createWriteStream(
@@ -208,19 +210,25 @@ class NodeBitcask {
     if (!this.#seek) {
       this.#seek = 0;
     }
+    if (!this.#kvStore[constants.kvEmbeddedKey]) {
+      this.#kvStore[constants.kvEmbeddedKey] = utils.getEmptyEmbedObject();
+    }
     let isMessageValid = utils.validateMessage(message);
     let isKeyValid = utils.validateKey(key, this.#kvStore);
     if (isKeyValid && isMessageValid) {
       let data = key + "," + JSON.stringify({ bin: message });
       if (this.#kvStore && this.#kvStore[key]) {
-        this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
+        this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] +=
+          this.#kvStore[key].totalBytes;
       }
       let messageHash = utils.getHash(data);
-      this.#kvStore[key] = {
-        checkSum: messageHash,
-        totalBytes: data.length,
-        address: this.#seek,
-      };
+      utils.addKeyToKV(
+        this.#kvStore,
+        key,
+        messageHash,
+        data.length,
+        this.#seek
+      );
       this.#seek += data.length;
       fs.appendFileSync(path.join(this.#dataDir, this.#logfilename), data);
     }
@@ -236,10 +244,8 @@ class NodeBitcask {
       utils.empty(this.#kvSnapshotDir);
       this.#kvStore = {};
       this.#seek = 0;
-      this.#unreferencedBytesCount = 0;
       clearInterval(this.#compactionSetInterval);
       clearInterval(this.#backupKVSetInterval);
-
     } catch (error) {
       if (error) throw error;
     }
@@ -308,14 +314,14 @@ class NodeBitcask {
    */
   deleteLog(key) {
     utils.validateKey(key, this.#kvStore);
-    if (this.#kvStore[key]) {
+    if (typeof this.#kvStore === "object" && this.#kvStore[key]) {
       utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
-      this.#tombstones.push({
-        start: this.#kvStore[key].address,
-        length: this.#kvStore[key].totalBytes,
-      });
       this.#kvStore[key].deleted = true;
-      this.#unreferencedBytesCount += this.#kvStore[key].totalBytes;
+      this.#kvStore[constants.kvEmbeddedKey]["contentLength"] -=
+        this.#kvStore[key].totalBytes;
+      this.#kvStore[constants.kvEmbeddedKey]["activeKeyCount"] -= 1;
+      this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] +=
+        this.#kvStore[key].totalBytes;
     }
   }
 
@@ -360,16 +366,17 @@ class NodeBitcask {
    * de-fragments the unreferenced data, and frees up disk.
    */
   #compaction(tmpKVStore) {
-    // either copy only those whose key exists, or delete the existing ones?
-    if (this.#isCompactionInProgress || this.#unreferencedBytesCount < 1000) {
-      return;
-    } else {
-      this.#isCompactionInProgress = true;
-    }
-    if (!tmpKVStore) {
+    if (
+      this.#isCompactionInProgress ||
+      !this.#kvStore ||
+      (this.#kvStore[constants.kvEmbeddedKey] &&
+        this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] < 1)
+    ) {
       this.#isCompactionInProgress = false;
       return false;
     }
+
+    this.#isCompactionInProgress = true;
 
     let tmpLogPath = path.join(__dirname, "..", "tmpLog.bin");
     // create tmp file
@@ -384,57 +391,132 @@ class NodeBitcask {
       let writerStream = fs.createWriteStream(tmpLogPath, {
         start: 0,
         flags: "a",
-        highWaterMark: 1,
+        // highWaterMark: 1,
       });
       let tmpSeek = 0;
-      this.#unreferencedBytesCount = 0;
-      for (let key of Object.keys(tmpKVStore)) {
-        if (tmpKVStore[key].deleted == true) {
-          tmpKVStore[key] = undefined;
-        } else {
-          utils.getStoredContent(
-            path.join(this.#dataDir, this.#logfilename),
-            tmpKVStore[key].address,
-            tmpKVStore[key].totalBytes,
-            (content) => {
-              if (!content) {
-                throw Error("cannot read ", key);
-              }
-              writerStream.write(content, (err) => {
-                if (err) {
-                  console.error(err);
-                }
-              });
-              tmpKVStore[key].address = tmpSeek;
-              tmpSeek += tmpKVStore[key].totalBytes;
-            }
-          );
-        }
-      }
-      // writerStream.end();
-      writerStream.on("drain", () => {
-        // all the writing has finished,
-        this.#seek = tmpSeek;
-        this.#kvStore = tmpKVStore;
-        fs.copyFileSync(
-          tmpLogPath,
-          path.join(this.#dataDir, this.#logfilename)
-        );
+      this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] = 0;
+      let i = 0;
+      let keys = Object.keys(tmpKVStore);
+      this.#writeToStream(
+        writerStream,
+        i,
+        keys,
+        path.join(this.#dataDir, this.#logfilename),
+        tmpKVStore,
+        tmpSeek,
+        (event, updatedTmpSeek) => {
+          tmpSeek = updatedTmpSeek;
+          if (event == "end") {
+            this.#seek = tmpSeek;
+            this.#kvStore = tmpKVStore;
+            fs.copyFileSync(
+              tmpLogPath,
+              path.join(this.#dataDir, this.#logfilename)
+            );
 
-        fs.unlink(tmpLogPath, (err) => {
-          if (err) {
-            console.error(err);
+            this.#isCompactionInProgress = false;
+            this.#kvStore[constants.kvEmbeddedKey][
+              "unreferencedBytesCount"
+            ] = 0;
+            utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
+            return false;
           }
-        });
-        this.#isCompactionInProgress = false;
-        utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
-        return false;
-      });
+        }
+      );
+
+      // if(key == constants.kvEmbeddedKey){
+      //   continue
+      // }
+      // if (tmpKVStore[key].deleted == true) {
+      //   tmpKVStore[key] = undefined;
+      // } else {
+      // utils.getStoredContent(
+      //   path.join(this.#dataDir, this.#logfilename),
+      //   tmpKVStore[key].address,
+      //   tmpKVStore[key].totalBytes,
+      //   (content) => {
+      //     if (!content) {
+      //       throw Error("cannot read ", key);
+      //     }
+      //     writerStream.write(content, (err) => {
+      //       if (err) {
+      //         console.error(err);
+      //       }
+      //     });
+      //     tmpKVStore[key].address = tmpSeek;
+      //     tmpSeek += tmpKVStore[key].totalBytes;
+      //   }
+      // );
+      // writerStream.end();
     } catch (error) {
       console.error(error);
       this.#isCompactionInProgress = false;
       return false;
     }
+  }
+  async #writeToStream(wstream, i, keys, filePath, kvStore, tmpSeek, cb) {
+    for (; i < keys.length; i++) {
+      let key = keys[i];
+      if (key == constants.kvEmbeddedKey) {
+        continue;
+      }
+      let content = "";
+      try {
+        content = await utils.getStoredContentPromise(
+          filePath,
+          kvStore[key].address,
+          kvStore[key].totalBytes
+        );
+      } catch (error) {
+        console.error(error);
+      }
+      kvStore[key].address = tmpSeek;
+      tmpSeek += content.length;
+      if (!wstream.write(content)) {
+        // Wait for it to drain then start writing data from where we left off
+        wstream.once("drain", () => {
+          this.#writeToStream(
+            wstream,
+            i + 1,
+            keys,
+            filePath,
+            kvStore,
+            tmpSeek,
+            cb
+          );
+        });
+        return;
+      }
+    }
+    wstream.end();
+    cb("end", tmpSeek);
+  }
+  /**
+   *
+   * @param {String} key
+   * returns true if key exists
+   */
+  contains(key) {
+    if (key && typeof key === "string") {
+      if (
+        this.#kvStore[key] &&
+        !this.#kvStore[key].deleted &&
+        this.#kvStore[key].checkSum
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  isEmpty() {
+    return this.keyCount() === 0;
+  }
+  keyCount() {
+    if (this.#kvStore && this.#kvStore[constants.kvEmbeddedKey]) {
+      return this.#kvStore[constants.kvEmbeddedKey].activeKeyCount;
+    }
+    return 0;
   }
 }
 
