@@ -61,9 +61,7 @@ class NodeBitcask {
       return null;
     }
     if (this.#isCompactionInProgress) {
-      setTimeout(() => {
-        this.get(key, cb);
-      }, 5000);
+      this.#onCompactionEnd(() => this.get(key, cb));
       return;
     }
     let address = this.#kvStore[key].address;
@@ -158,9 +156,7 @@ class NodeBitcask {
       this.#kvStore[constants.kvEmbeddedKey] = utils.getEmptyEmbedObject();
     }
     if (this.#isCompactionInProgress) {
-      setTimeout(() => {
-        this.log(key, message, cb);
-      }, 4000);
+      this.#onCompactionEnd(() => this.log(key, message, cb));
       return;
     }
     let isMessageValid = utils.validateMessage(message);
@@ -197,6 +193,16 @@ class NodeBitcask {
       }, 0);
     }
   }
+
+  #onCompactionEnd = (actionOnTrue) => {
+    if (this.#isCompactionInProgress == false) {
+      setTimeout(() => {
+        this.#onCompactionEnd(actionOnTrue);
+      }, 50);
+    } else {
+      actionOnTrue();
+    }
+  };
 
   /**
    * @param {[String]} key
