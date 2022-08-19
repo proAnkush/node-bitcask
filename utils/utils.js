@@ -155,6 +155,7 @@ exports.readKVSnapshot = (kvSnapshotDir, logFileDir) => {
   return [seek, kvStore];
 };
 
+
 exports.getStoredContent = (filePath, position, length, cb) => {
   // console.log(filePath, position, length, cb);
   // read to buffer
@@ -271,4 +272,42 @@ exports.getEmptyEmbedObject = () => {
 
 exports.customUpdatingInterval = (fn, to) => {
   setTimeout(fn, to);
+};
+
+exports.writeToStream = (wstream, i, keys, filePath, kvStore, tmpSeek, cb) => {
+  for (; i < keys.length; i++) {
+    let key = keys[i];
+    if (key == constants.kvEmbeddedKey) {
+      continue;
+    }
+    let content = "";
+    try {
+      content = await utils.getStoredContentPromise(
+        filePath,
+        kvStore[key].address,
+        kvStore[key].totalBytes
+      );
+    } catch (error) {
+      console.error(error);
+    }
+    kvStore[key].address = tmpSeek;
+    tmpSeek += content.length;
+    if (!wstream.write(content)) {
+      // Wait for it to drain then start writing data from where we left off
+      wstream.once("drain", () => {
+        this.#writeToStream(
+          wstream,
+          i + 1,
+          keys,
+          filePath,
+          kvStore,
+          tmpSeek,
+          cb
+        );
+      });
+      return;
+    }
+  }
+  wstream.end();
+  cb("end", tmpSeek);
 };

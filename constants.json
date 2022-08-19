@@ -4,5 +4,6 @@
   "processTombstoneInterval": 60000,
   "compactionInterval": 70000,
   "messagePaddingLLength": 7,
-  "messagePaddingRLength": 1
+  "messagePaddingRLength": 1,
+  "kvEmbeddedKey": "4bc1ssa"
 }

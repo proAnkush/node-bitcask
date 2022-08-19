@@ -320,14 +320,18 @@ class NodeBitcask {
    */
   deleteLog(key) {
     utils.validateKey(key, this.#kvStore);
-    if (typeof this.#kvStore === "object" && this.#kvStore[key]) {
-      utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
+    if (
+      typeof this.#kvStore === "object" &&
+      this.#kvStore[key] &&
+      !this.#kvStore[key].deleted
+    ) {
       this.#kvStore[key].deleted = true;
       this.#kvStore[constants.kvEmbeddedKey]["contentLength"] -=
         this.#kvStore[key].totalBytes;
       this.#kvStore[constants.kvEmbeddedKey]["activeKeyCount"] -= 1;
       this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] +=
         this.#kvStore[key].totalBytes;
+      utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
     }
   }
 
@@ -381,6 +385,8 @@ class NodeBitcask {
       this.#isCompactionInProgress = false;
       return false;
     }
+    let unreferencedBytesCount =
+      this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"];
 
     this.#isCompactionInProgress = true;
 
@@ -403,7 +409,7 @@ class NodeBitcask {
       this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] = 0;
       let i = 0;
       let keys = Object.keys(tmpKVStore);
-      this.#writeToStream(
+      utils.writeToStream(
         writerStream,
         i,
         keys,
@@ -421,82 +427,20 @@ class NodeBitcask {
             );
 
             this.#isCompactionInProgress = false;
-            this.#kvStore[constants.kvEmbeddedKey][
-              "unreferencedBytesCount"
-            ] = 0;
+            this.#kvStore[constants.kvEmbeddedKey]["unreferencedBytesCount"] -=
+              unreferencedBytesCount;
             utils.createKVSnapshot(this.#kvSnapshotDir, this.#kvStore);
             return false;
           }
         }
       );
-
-      // if(key == constants.kvEmbeddedKey){
-      //   continue
-      // }
-      // if (tmpKVStore[key].deleted == true) {
-      //   tmpKVStore[key] = undefined;
-      // } else {
-      // utils.getStoredContent(
-      //   path.join(this.#dataDir, this.#logfilename),
-      //   tmpKVStore[key].address,
-      //   tmpKVStore[key].totalBytes,
-      //   (content) => {
-      //     if (!content) {
-      //       throw Error("cannot read ", key);
-      //     }
-      //     writerStream.write(content, (err) => {
-      //       if (err) {
-      //         console.error(err);
-      //       }
-      //     });
-      //     tmpKVStore[key].address = tmpSeek;
-      //     tmpSeek += tmpKVStore[key].totalBytes;
-      //   }
-      // );
-      // writerStream.end();
     } catch (error) {
       console.error(error);
       this.#isCompactionInProgress = false;
       return false;
     }
   }
-  async #writeToStream(wstream, i, keys, filePath, kvStore, tmpSeek, cb) {
-    for (; i < keys.length; i++) {
-      let key = keys[i];
-      if (key == constants.kvEmbeddedKey) {
-        continue;
-      }
-      let content = "";
-      try {
-        content = await utils.getStoredContentPromise(
-          filePath,
-          kvStore[key].address,
-          kvStore[key].totalBytes
-        );
-      } catch (error) {
-        console.error(error);
-      }
-      kvStore[key].address = tmpSeek;
-      tmpSeek += content.length;
-      if (!wstream.write(content)) {
-        // Wait for it to drain then start writing data from where we left off
-        wstream.once("drain", () => {
-          this.#writeToStream(
-            wstream,
-            i + 1,
-            keys,
-            filePath,
-            kvStore,
-            tmpSeek,
-            cb
-          );
-        });
-        return;
-      }
-    }
-    wstream.end();
-    cb("end", tmpSeek);
-  }
+  
   /**
    *
    * @param {String} key
@@ -518,11 +462,26 @@ class NodeBitcask {
   isEmpty() {
     return this.keyCount() === 0;
   }
+  /**
+   * returns integer count of all active keys
+   */
   keyCount() {
     if (this.#kvStore && this.#kvStore[constants.kvEmbeddedKey]) {
       return this.#kvStore[constants.kvEmbeddedKey].activeKeyCount;
     }
     return 0;
+  }
+  /**
+   *
+   * returns a list of all active keys
+   */
+  keys() {
+    if (this.#kvStore) {
+      return Object.keys(this.#kvStore).filter((item) => {
+        return item != constants.kvEmbeddedKey && !this.#kvStore[item].deleted;
+      });
+    }
+    return [];
   }
 }
 
