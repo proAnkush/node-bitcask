@@ -5,14 +5,15 @@
 >"Bitcask[^1] is an Erlang application that provides an API for storing and retrieving key/value data using log-structured hash tables that provide very fast access. The design of Bitcask was inspired, in part, by log-structured filesystems and log file merging." - riak docs
  
 
-**node-bitcask** is a NodeJS implementation of the proposed storage system. It is a log structured hash table.
+[**node-bitcask**](https://www.npmjs.com/package/node-bitcask) is a open source NodeJS implementation of the proposed storage engine. It is a log structured hash table.
 
 Log structured: Data structure that allows append operations only, to utilise the sequential speeds of traditional mechanical hard drives.
 
 Hash tables: In memory Key-Value pairs with O(1) read and write complexity.
 
-node-bitcask allows asynchronous and synchronous operations on such a log structured hash table, where values are md5 verified, to store and provide data accurately. It also features resilience to power outage, vertical scalability, space optimization by periodic compaction.
-
+node-bitcask allows asynchronous and synchronous operations on such a log structured hash table, where values are md5 verified, to store and provide data accurately. It also features resilience to power outage with snapshots, vertical scalability, space optimization by periodic compaction.
+<br>
+<br>
 ## Installation
 ---
 Install via npm: 
@@ -28,6 +29,7 @@ const nb = require('node-bitcask');
 nb.put("zebra", "an African wild animal that looks like a horse, with black or brown and white lines on its body");
 nb.get("zebra");
 ```
+<!-- zebra: the coolest looking animal of all time. -->
 
 ## API
 ---
@@ -37,6 +39,10 @@ nb.get("zebra");
 - [Importing previous database](#Importing-previous-database)
 - [Deleting a log](#Deleting-a-log)
 - [Deleting the database](#Deleting-the-database)
+- [Check if key exists](#Checking-if-key-exists)
+- [Check if empty](#Checking-if-empty)
+- [Getting total keys count](#Getting-total-keys-count)
+- [Iterating over the keys](#Iterating-over-the-keys)
 <br><br>
 ### **Inserting data**
 Data can be simply stored with:
@@ -55,6 +61,7 @@ get(key, callback)
 ```
 `get` asynchronously find `key` referenced data and on success, provides the data to given callback. In case no data is found (maybe due to deleted key, incomplete storage, power-outage, bugs etc) `callback` will be invoked with `null` argument.<br>
 **Note:** `getSync(key)` is also available for synchronous *get* operation.
+<br>
 
 ### **Exporting the database**
 To export the database essential files
@@ -88,6 +95,39 @@ To delete all the data and the KV store use:
 ```js
 nb.unload()
 ```
+<br>
+
+### **Checking if key exists**
+To check if nb contains a undeleted key, use:
+```js
+nb.contains(key)
+```
+returns `true` if `key` is present in nb.
+<br>
+
+### **Checking if empty**
+```js
+nb.isEmpty()
+```
+returns `true` if nb is empty. This can be due no log operation executed, or every key is deleted.
+<br>
+### **Getting total keys count**
+```js
+nb.size()
+```
+Returns an Integer which equals to the count of active keys in nb.
+
+### **Iterating over the keys**
+nb allows reading sequentially over all the active keys.
+```js
+const keys = nb.keys()
+for(let key of keys){
+    console.log(nb.getSync(key));
+}
+```
+will iterate over all keys in nb and read them synchronously
+<br>
+<br>
 
 ## Configuration
 ---
@@ -109,10 +149,29 @@ You can omit any key that you dont want to configure, and its value will stay to
 
 - *async fs* operations are handled by thread pool in nodejs. So performance of these operations will depend on the count of CPU cores in the system, and their respective speed. i.e. A single logical cpu core can do one fs operation at a time, so 4c/8t cpu will handle 8 fs operations concurrently.[^4]
 
+<!-- just a thought. -->
+- Why not cache frequently accessed keys? Good observation, still cache system like redis will be helpful only if it is run on another physical machine. Running it concurrently will affect the file system access performance of node-bitcask, since -as mentioned already-  nodejs file system operations utilize thread pool, one less cpu thread will marginally drop the performance of node-bitcask. Integrating node-bitcask on a completely different stand alone hardware might be better choice, always.
+
+## Known Issues
+---
+<!-- Major Issue: No dependants yet -->
+- Sync read and writes will fail during compaction. Please prefer using async variations of both until future updates.
+- Some writes between creating snapshot and powerloss/SIGTERM will be available in logfile, but no references will be written in snapshot.
+- Current storage format for data can be improved.
 
 ## Changelogs
 ---
-Version 1.0.0-beta.2
+<!-- 19 August 2022 -->
+**Version 1.0.0-beta.3**
+
+- Compaction fix for data exceeding writeStream highwatermark(1kb).
+- Queueing async get() and log() until compaction ends for consistency.
+- Fix deletion for already deleted keys.
+- Added helpfull utils like `isEmpty()`, `keys()`, `contains(key)`, `size()` for better manipulation and querying.
+- Persisting garbage collectible information, so compaction can be efficient on imported database.
+- Known issues section in README.
+
+**Version 1.0.0-beta.2**
 
 - Removed stream api.
 - Added md5 checksums (crypto module) for verifying the integrity of written data.
@@ -123,7 +182,7 @@ Version 1.0.0-beta.2
 - Added changelogs to README
 - Some more minor fixes.
 
-Version 1.0.0-beta.1
+**Version 1.0.0-beta.1**
 - Fixed undefined instance variables of node-bitcask resulted in failure of most operations
 - Removed test operations from index.js which would get executed on importing node-bitcask.
 - Handled file doesn't exist.

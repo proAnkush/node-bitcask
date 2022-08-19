@@ -274,7 +274,15 @@ exports.customUpdatingInterval = (fn, to) => {
   setTimeout(fn, to);
 };
 
-exports.writeToStream = (wstream, i, keys, filePath, kvStore, tmpSeek, cb) => {
+exports.writeToStream = async (
+  wstream,
+  i,
+  keys,
+  filePath,
+  kvStore,
+  tmpSeek,
+  cb
+) => {
   for (; i < keys.length; i++) {
     let key = keys[i];
     if (key == constants.kvEmbeddedKey) {
@@ -282,7 +290,7 @@ exports.writeToStream = (wstream, i, keys, filePath, kvStore, tmpSeek, cb) => {
     }
     let content = "";
     try {
-      content = await utils.getStoredContentPromise(
+      content = await this.getStoredContentPromise(
         filePath,
         kvStore[key].address,
         kvStore[key].totalBytes
@@ -295,7 +303,7 @@ exports.writeToStream = (wstream, i, keys, filePath, kvStore, tmpSeek, cb) => {
     if (!wstream.write(content)) {
       // Wait for it to drain then start writing data from where we left off
       wstream.once("drain", () => {
-        this.#writeToStream(
+        this.writeToStream(
           wstream,
           i + 1,
           keys,

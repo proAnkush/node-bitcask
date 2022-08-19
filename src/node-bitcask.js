@@ -55,6 +55,9 @@ class NodeBitcask {
    * asynchronously finds the data corresponding to the `key` and passes down the data to `cb`
    */
   get(key, cb) {
+    if(!cb){
+      console.error("Callback to get cannot be undefined, please provide a function()");
+    }
     utils.validateKey(key, this.#kvStore);
     if (this.#kvStore[key] == undefined) {
       cb(null);
@@ -440,7 +443,7 @@ class NodeBitcask {
       return false;
     }
   }
-  
+
   /**
    *
    * @param {String} key
@@ -465,7 +468,7 @@ class NodeBitcask {
   /**
    * returns integer count of all active keys
    */
-  keyCount() {
+  size() {
     if (this.#kvStore && this.#kvStore[constants.kvEmbeddedKey]) {
       return this.#kvStore[constants.kvEmbeddedKey].activeKeyCount;
     }
