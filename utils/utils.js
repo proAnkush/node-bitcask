@@ -205,9 +205,10 @@ exports.getStoredContentPromise = (filePath, position, length) => {
   // console.log(filePath, position, length, cb);
   // read to buffer
   return new Promise((resolve, reject) => {
-    if (!filePath || !position || !length) {
-      reject(new Error("fp or pos or len is null"));
-    }
+    // if (!filePath || !position || !length) {
+    //   console.error("///;;;+>", filePath, position, length);
+    //   reject(new Error("fp or pos or len is null"));
+    // }
     let readToBuffer = Buffer.alloc(length);
 
     setTimeout(() => {
@@ -249,11 +250,12 @@ exports.getStoredContentPromise = (filePath, position, length) => {
   // go to address in the file and start reading
 };
 
-exports.addKeyToKV = (kv, key, messageHash, dataLength, seek) => {
+exports.addKeyToKV = (kv, key, messageHash, dataLength, seek, data) => {
   kv[key] = {
     checkSum: messageHash,
     totalBytes: dataLength,
     address: seek,
+    data: data,
   };
   seek += dataLength;
   kv[constants.kvEmbeddedKey]["activeKeyCount"] += 1;
@@ -296,7 +298,9 @@ exports.writeToStream = async (
         kvStore[key].totalBytes
       );
     } catch (error) {
-      console.error(error);
+      if (error) {
+        console.error(error);
+      }
     }
     kvStore[key].address = tmpSeek;
     tmpSeek += content.length;

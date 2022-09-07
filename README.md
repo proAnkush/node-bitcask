@@ -155,12 +155,19 @@ You can omit any key that you dont want to configure, and its value will stay to
 ## Known Issues
 ---
 <!-- Major Issue: No dependants yet -->
-- Sync read and writes will fail during compaction. Please prefer using async variations of both until future updates.
+- ~~Sync read and writes will fail during compaction. Please prefer using async variations of both until future updates.~~
 - Some writes between creating snapshot and powerloss/SIGTERM will be available in logfile, but no references will be written in snapshot.
 - Current storage format for data can be improved.
 
 ## Changelogs
 ---
+<!-- 07 September 2022 -->
+**Version 1.0.0-beta.4**
+- Optimised write performance when consecutively writing to the same key asynchronously. Also decreased fs access for the same. Prefer using async operations.
+- Faster reads when reading immediately after async write.
+- Fix sync operations during compaction.
+- Closing file descriptor opened during `getSync()`
+
 <!-- 19 August 2022 -->
 **Version 1.0.0-beta.3**
 
